@@ -42,7 +42,7 @@ def slope_distance_to_horizontal_distance(s, z, t_a, t_b, p_a, p_b, h_a, h_b):
 
 
 def dms_to_degrees(dms):
-    # 将度分秒字符串分割为度、分、秒部分
+    # 将度.分秒字符串分割为度、分、秒部分
     # 将度分秒格式转换为十进制度
     degrees = int(dms)
     minutes = int((dms - degrees) * 100)
