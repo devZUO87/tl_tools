@@ -1,12 +1,11 @@
 import os
-
 import pandas as pd
 
 
 class MeasurementData:
     def __init__(self, path):
-        self.original_dict = {}
-        self.transform_data = {}
+        self.original_list = []
+        self.transform_data = []
         self.path = path
         self.process_directory()
         self.data_transform()
@@ -32,7 +31,7 @@ class MeasurementData:
                     # 读取表格文件
                     data = pd.read_excel(file_path)
                     name = file_name + '-' + last_dir
-                    # 将数据存储到字典中
+                    # 将数据存储到数组中
                     # 筛选数据 选择 DataFrame data 的最后 6 行，并从中提取第 2 列到倒数第 4 列（不包括倒数第 4 列）的所有列
                     selected_rows = data.tail(6).iloc[:, 1:-4]
                     # 获取列名
@@ -42,21 +41,24 @@ class MeasurementData:
                     df = pd.DataFrame(selected_rows.values)
                     df.columns = range(df.shape[1])  # 重新分配列名为整数索引
                     df.columns = [''] * len(df.columns)
-                    self.original_dict[name] = df
+                    self.original_list.append((name, df))
+
 
     def data_transform(self):
-        for key, value in self.original_dict.items():
+        for key, value in self.original_list:
+            print(value)
             # 获取数据
-            self.transform_data[key] = {
-                # key.split('-')[0],
-                'name':key[:4],
-                's':float(value.iloc[0, 6]),
-                'z':float(value.iloc[0, 5]),
+            for i in range(value.shape[0]):
+                self.transform_data.append([
+                    key,
+                    value.iloc[i, 0],
+                    float(value.iloc[i, 4]),
+                    float(value.iloc[i, 5]),
+                    float(value.iloc[i, 6]),
+                ])
 
-            }
 
-
-# example = MeasurementData(
-#     'E:/2024/金川水电站补充测量/大渡河金川水电站五甲村三四组对外道路控制点补测项目三角高程/三角高程原始数据 - 副本')
-# example.process_directory()
-# print(example.transform_data)
+example = MeasurementData(
+    'D:/tl_tools/data/原始数据/test/YQ0311')
+example.process_directory()
+print(example.transform_data)
