@@ -1,0 +1,28 @@
+Station    :C3_2
+SurveySets :3
+EquipmentHi:1.500000000
+Period Num :2
+Grade Limit:1
+Remark     :
+OutputType :2
+TargetReTim:10
+SetsReMTime:50
+HzReadError:0.000072722
+Hz 2C Limit:0.000072722
+Close Error:0.000096963
+1Set2CWEach:0.000096963
+SetsAvg Lmt:0.000096963
+Sets2CWSelf:0.000096963
+VaReadError:0.000024241
+Index limit:0.000033937
+1SetIdxOthe:0.000038785
+SetsIdxAvgE:0.000038785
+SetsIdxSelf:0.000038785
+SDReadError:0.010000000
+SDSetsAvgEr:0.015000000
+AutoMeasure:1
+InputDataTy:1
+InputFileNa:
+Remote Mode:0
+Open1Set2CL:1
+StnJobName :20240624
