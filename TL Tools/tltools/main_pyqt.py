@@ -13,11 +13,14 @@ from data_oop import MeasurementData
 class DraggableTableWidget(QTableWidget):
     def __init__(self,path, *args, **kwargs):
         super(DraggableTableWidget, self).__init__(*args, **kwargs)
-        self.resize(800, 450)
+        self.resize(1000, 600)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.data_keys = ["文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距"]
+        self.data_keys = ["上一个", "文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距", "下一个"]
         self.setHorizontalHeaderLabels(self.data_keys) # 设置表头
+
         self.path = path
+        self.grouped_data = MeasurementData(path).grouped_data
+        self.current_indices = {key: 0 for key in self.grouped_data}
         self.drag_row = -1
         self.drop_row = None
         self.drag_widget = None
@@ -74,7 +77,7 @@ class DraggableTableWidget(QTableWidget):
     def mousePressEvent(self, event) -> None: # 鼠标按下事件
         row, col = self.indexAt(event.pos()).row(), self.indexAt(event.pos()).column() # 获取鼠标位置的行和列
         cur_item = self.item(row, col) # 获取当前单元格
-        if col == 0 and cur_item: # 如果点击的是第一列 并且单元格存在
+        if col == 1 and cur_item: # 如果点击的是第一列 并且单元格存在
             drag_row_data = cur_item.data(Qt.UserRole) # 获取第一列的数据
             self.set_drag_data_on_widget(drag_row_data) # 设置拖拽的数据
             self.drag_row = row # 设置拖拽的行
@@ -92,17 +95,57 @@ class DraggableTableWidget(QTableWidget):
         self.init_drag_widget() # 初始化拖拽窗口
         super(DraggableTableWidget, self).mouseReleaseEvent(event)
 
-    def get_table_data(self):
-        # 从外部文件生成数据
-        data_instance = MeasurementData(self.path)
-        return data_instance.transform_data
+    # def get_table_data(self):
+    #     # 从外部文件生成数据
+    #     data_instance = MeasurementData(self.path)
+    #     return data_instance.get_grouped_data()
 
     def set_data(self):
-        self.setColumnCount(len(self.data_keys))
-        self.setHorizontalHeaderLabels(self.data_keys)
-        self.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        for row, row_item in enumerate(self.get_table_data()):
-            self.insert_row_data(row, row_item)
+        self.setColumnCount(len(self.data_keys)) # 设置列数
+        self.setHorizontalHeaderLabels(self.data_keys) # 设置表头
+        self.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents) # 设置列宽自适应
+        # for row, row_item in enumerate(self.get_table_data()):
+        #     self.insert_row_data(row, row_item)
+
+        for row, key in enumerate(self.grouped_data.keys()):
+            self.insertRow(row)
+            # self.setItem(row, 1, QTableWidgetItem(str(key))) # 插入key
+            # print(key, self.grouped_data[key])
+            self.update_table_row(row, key)
+            prev_button = QPushButton('<<')
+            prev_button.clicked.connect(lambda _, k=key, r=row: self.show_previous(k, r))
+            self.setCellWidget(row, 0, prev_button)
+            next_button = QPushButton('>>')
+            next_button.clicked.connect(lambda _, k=key, r=row: self.show_next(k, r))
+            self.setCellWidget(row, 7, next_button)
+
+    def show_previous(self, key, row):
+        current_index = self.current_indices[key]
+        print(current_index)
+        if current_index > 0:
+            self.current_indices[key] -= 1
+        elif current_index == 0:
+            self.current_indices[key] = len(self.grouped_data[key]) - 1
+        self.update_table_row(row, key)
+
+    def show_next(self, key, row):
+        current_index = self.current_indices[key]
+        if current_index < len(self.grouped_data[key]) - 1:
+            self.current_indices[key] += 1
+        elif current_index == len(self.grouped_data[key]) - 1:
+            self.current_indices[key] = 0
+        self.update_table_row(row, key)
+
+    def update_table_row(self, row, key):
+        current_index = self.current_indices[key]
+        current_data = self.grouped_data[key][current_index]
+        for col, value in enumerate(current_data):
+            item = QTableWidgetItem(str(value))
+            if col == 0:
+                item.setData(Qt.UserRole, current_data)
+            self.setItem(row, col+1, item)
+        # self.setItem(row, 1, QTableWidgetItem(str(current_data)))
+
 
     def insert_row_data(self, row, row_item):
         self.insertRow(row)
@@ -111,6 +154,8 @@ class DraggableTableWidget(QTableWidget):
             if col == 0:
                 item.setData(Qt.UserRole, row_item)
             self.setItem(row, col, item)
+
+
 
 app = QApplication([])
 path = 'D:/tl_tools/data/原始数据/test/20240624-1'
