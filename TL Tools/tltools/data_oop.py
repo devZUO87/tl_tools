@@ -94,7 +94,6 @@ if __name__ == '__main__':
     path = 'D:/tl_tools/data/原始数据/test/20240624-1'
     example = MeasurementData(path)
     grouped_data = example.grouped_data
-    print(grouped_data)
 
 
     # for group_key, group_values in grouped_data.items():

@@ -1,139 +1,141 @@
 # _*_ coding:utf-8 _*_
 # @File  : 拖拽表格.py
-# @Time  : 2021-05-10 15:42
-# @Author: zizle
+# @Time  : 2024/8/28
+# @Author: zuo
 import sys
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QIcon, QBrush, QColor, QPalette, QPixmap
-from PyQt5.QtWidgets import QApplication, QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QWidget, QHBoxLayout, QLabel, QPushButton
-
-# 导入 MeasurementData 类
-from data_oop import MeasurementData
+from PyQt5.QtGui import QBrush, QColor, QPalette
+from PyQt5.QtWidgets import (QApplication, QTableWidget, QTableWidgetItem,
+                             QAbstractItemView, QHeaderView, QWidget,
+                             QPushButton, QLabel, QHBoxLayout)
+from data_oop import MeasurementData  # 导入 MeasurementData 类
 
 class DraggableTableWidget(QTableWidget):
-    def __init__(self,path, *args, **kwargs):
-        super(DraggableTableWidget, self).__init__(*args, **kwargs)
+    def __init__(self, path, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.resize(1000, 600)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.data_keys = ["上一个", "文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距", "下一个"]
-        self.setHorizontalHeaderLabels(self.data_keys) # 设置表头
-
+        self.drag_keys = ["文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距"]
+        self.setHorizontalHeaderLabels(self.data_keys)  # 设置表头
         self.path = path
         self.grouped_data = MeasurementData(path).grouped_data
         self.current_indices = {key: 0 for key in self.grouped_data}
+        self.cur_key = None
         self.drag_row = -1
-        self.drop_row = None
         self.drag_widget = None
         self.init_drag_widget()
-
-    def set_drag_data_on_widget(self, row_data): # 设置拖拽的数据
-        drag_layout = QHBoxLayout(self.drag_widget) # 水平布局
-        drag_layout.setContentsMargins(10, 0, 0, 0) # 设置布局的边距
-        for col in range(self.columnCount()): # 遍历列
-            text_label = QLabel(str(row_data[col]), self.drag_widget) # 创建标签
-            text_label.setFixedWidth(self.columnWidth(col)) # 设置标签的宽度
-            text_label.setAlignment(Qt.AlignCenter) # 设置标签的对齐方式
-            drag_layout.addWidget(text_label) # 添加标签到布局
-            button = QPushButton(self)  # 创建按钮
-            button.setFocusPolicy(Qt.NoFocus) # 设置按钮的焦点策略
-            button.setFixedWidth(1) # 设置按钮的宽度
-            drag_layout.addWidget(button) # 添加按钮到布局
-        drag_layout.addStretch() # 添加伸缩空间
-        self.drag_widget.setLayout(drag_layout) # 设置布局
-        setattr(self.drag_widget, 'row_data', row_data) # 设置属性
+        self.set_data()
 
     def init_drag_widget(self):
-        if self.drag_widget is not None and isinstance(self.drag_widget, QWidget): # 如果拖拽窗口存在
-            self.drag_widget.deleteLater() # 删除拖拽窗口
-            self.drag_widget = None # 重置拖拽窗口
-        self.drag_widget = QWidget(self) # 创建拖拽窗口
-        p = self.drag_widget.palette() # 获取拖拽窗口的调色板
-        p.setColor(QPalette.Background, QColor(0, 200, 100)) # 设置拖拽窗口的背景颜色
-        self.drag_widget.setPalette(p) # 设置拖拽窗口的调色板
-        self.drag_widget.setAutoFillBackground(True) # 设置拖拽窗口自动填充背景
-        self.drag_widget.resize(self.width(), 30) # 设置拖拽窗口的大小
-        self.drag_widget.hide() # 隐藏拖拽窗口
+        if self.drag_widget:
+            self.drag_widget.deleteLater()
+        self.drag_widget = QWidget(self)
+        self.drag_widget.setAutoFillBackground(True)
+        self.drag_widget.setPalette(self._get_drag_widget_palette())
+        self.drag_widget.resize(self.width(), 30)
+        self.drag_widget.hide()
 
+    def _get_drag_widget_palette(self):
+        p = QPalette()
+        p.setColor(QPalette.Background, QColor(0, 200, 100))
+        return p
 
-
+    def set_drag_data_on_widget(self, row_data):
+        print(row_data)
+        drag_layout = QHBoxLayout(self.drag_widget)
+        drag_layout.setContentsMargins(10, 0, 0, 0)
+        for col, key in enumerate(self.drag_keys):
+            text_label = QLabel(str(row_data[col]), self.drag_widget)
+            text_label.setFixedWidth(self.columnWidth(col))
+            # text_label.setAlignment(Qt.AlignCenter)
+            drag_layout.addWidget(text_label)
+            button = QPushButton(self)
+            button.setFocusPolicy(Qt.NoFocus)
+            button.setFixedWidth(1)
+            drag_layout.addWidget(button)
+        drag_layout.addStretch()
 
     def mouseMoveEvent(self, event) -> None:
-        self.drag_widget.move(event.pos()) # 设置拖拽窗口的位置
-        self.drag_widget.show() # 显示拖拽窗口
-        row, col = self.indexAt(event.pos()).row(), self.indexAt(event.pos()).column() # 获取鼠标位置的行和列
-        print(row, col) # 打印行和列
-        self.set_row_bg_color(row, QColor(254, 163, 86)) # 设置行的背景颜色
-        self.set_row_bg_color(row + 1, QColor(255, 255, 255)) # 设置行的背景颜色
-        self.set_row_bg_color(row - 1, QColor(255, 255, 255)) # 设置行的背景颜色
+        if self.drag_row != -1:
+            self.drag_widget.move(event.pos()) # 移动拖拽窗口
+            self.drag_widget.show() # 显示拖拽窗口
+            row = self.indexAt(event.pos()).row() # 获取鼠标位置的行
+            self._highlight_row(row) # 高亮当前行
+
+    def _highlight_row(self, row):
+        self.set_row_bg_color(row, QColor(254, 163, 86))
+        self.set_row_bg_color(row + 1, QColor(255, 255, 255))
+        self.set_row_bg_color(row - 1, QColor(255, 255, 255))
 
     def set_row_bg_color(self, row, color):
         if row < 0:
             return
-        for col in range(self.columnCount()): # 遍历列
-            item = self.item(row, col) # 获取单元格
-            if item: # 如果单元格存在
-                item.setBackground(QBrush(color)) # 设置单元格的背景颜色
+        for col in range(self.columnCount()):
+            item = self.item(row, col)
+            if item:
+                item.setBackground(QBrush(color))
 
-    def mousePressEvent(self, event) -> None: # 鼠标按下事件
-        row, col = self.indexAt(event.pos()).row(), self.indexAt(event.pos()).column() # 获取鼠标位置的行和列
-        cur_item = self.item(row, col) # 获取当前单元格
-        if col == 1 and cur_item: # 如果点击的是第一列 并且单元格存在
-            drag_row_data = cur_item.data(Qt.UserRole) # 获取第一列的数据
-            self.set_drag_data_on_widget(drag_row_data) # 设置拖拽的数据
-            self.drag_row = row # 设置拖拽的行
-            super(DraggableTableWidget, self).mousePressEvent(event)
+    def mousePressEvent(self, event) -> None:
+        row, col = self.indexAt(event.pos()).row(), self.indexAt(event.pos()).column()
+        if col == 1:
+
+            cur_item = self.item(row, col+1)
+            if cur_item:
+                self.drag_row = row
+                self.cur_key = (cur_item.data(Qt.UserRole)[1], cur_item.data(Qt.UserRole)[2])
+                # print(self.grouped_data[self.cur_key][self.current_indices[self.cur_key]])
+
+                self.set_drag_data_on_widget(self.grouped_data[self.cur_key][self.current_indices[self.cur_key]])
+        super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
-        row, col = self.indexAt(event.pos()).row(), self.indexAt(event.pos()).column() # 获取鼠标位置的行和列
-        self.set_row_bg_color(row, QColor(255, 255, 255)) # 设置行的背景颜色
-        # self.removeRow(self.drag_row) # 移除拖拽的行
-        row_data = getattr(self.drag_widget, 'row_data', None) # 获取拖拽窗口的数据
-        if row_data: # 如果数据存在
-            self.removeRow(self.drag_row)  # 移除拖拽的行
-            self.insert_row_data(row, row_data) # 插入行数据
-            self.selectRow(row) # 选中行
-        self.init_drag_widget() # 初始化拖拽窗口
-        super(DraggableTableWidget, self).mouseReleaseEvent(event)
+        row, col = self.indexAt(event.pos()).row(), self.indexAt(event.pos()).column()
+        self._clear_row_highlight(row)
+        cur_item = self.item(row, 2)
+        if cur_item and self.drag_row != -1:
+            self.removeRow(self.drag_row)
+            self.insertRow(row)
+            self.update_table_row(row, self.cur_key)
 
-    # def get_table_data(self):
-    #     # 从外部文件生成数据
-    #     data_instance = MeasurementData(self.path)
-    #     return data_instance.get_grouped_data()
+            if len(self.grouped_data[self.cur_key]) > 1:
+             self._add_navigation_buttons(row, self.cur_key)
+            self.selectRow(row)
+
+        self.init_drag_widget()
+        self.drag_row = -1
+        super().mouseReleaseEvent(event)
+
+    def _clear_row_highlight(self, row):
+        self.set_row_bg_color(row, QColor(255, 255, 255))
+
+    def _add_navigation_buttons(self, row, key):
+        prev_button = QPushButton('<<')
+        prev_button.clicked.connect(lambda _, k=key: self.show_previous(k, self.currentRow()))
+        self.setCellWidget(row, 0, prev_button)
+        next_button = QPushButton('>>')
+        next_button.clicked.connect(lambda _, k=key: self.show_previous(k, self.currentRow()))
+        self.setCellWidget(row, 7, next_button)
 
     def set_data(self):
-        self.setColumnCount(len(self.data_keys)) # 设置列数
-        self.setHorizontalHeaderLabels(self.data_keys) # 设置表头
-        self.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents) # 设置列宽自适应
-        # for row, row_item in enumerate(self.get_table_data()):
-        #     self.insert_row_data(row, row_item)
-
+        self.setColumnCount(len(self.data_keys))
+        self.setHorizontalHeaderLabels(self.data_keys)
+        self.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         for row, key in enumerate(self.grouped_data.keys()):
             self.insertRow(row)
-            # self.setItem(row, 1, QTableWidgetItem(str(key))) # 插入key
-            # print(key, self.grouped_data[key])
             self.update_table_row(row, key)
-            prev_button = QPushButton('<<')
-            prev_button.clicked.connect(lambda _, k=key, r=row: self.show_previous(k, r))
-            self.setCellWidget(row, 0, prev_button)
-            next_button = QPushButton('>>')
-            next_button.clicked.connect(lambda _, k=key, r=row: self.show_next(k, r))
-            self.setCellWidget(row, 7, next_button)
+            print(len(self.grouped_data[key]))
+            if len(self.grouped_data[key]) > 1:
+                self._add_navigation_buttons(row, key)
 
     def show_previous(self, key, row):
         current_index = self.current_indices[key]
-        print(current_index)
-        if current_index > 0:
-            self.current_indices[key] -= 1
-        elif current_index == 0:
-            self.current_indices[key] = len(self.grouped_data[key]) - 1
+        self.current_indices[key] = (current_index - 1) % len(self.grouped_data[key])
         self.update_table_row(row, key)
 
     def show_next(self, key, row):
         current_index = self.current_indices[key]
-        if current_index < len(self.grouped_data[key]) - 1:
-            self.current_indices[key] += 1
-        elif current_index == len(self.grouped_data[key]) - 1:
-            self.current_indices[key] = 0
+        self.current_indices[key] = (current_index + 1) % len(self.grouped_data[key])
         self.update_table_row(row, key)
 
     def update_table_row(self, row, key):
@@ -141,25 +143,21 @@ class DraggableTableWidget(QTableWidget):
         current_data = self.grouped_data[key][current_index]
         for col, value in enumerate(current_data):
             item = QTableWidgetItem(str(value))
-            if col == 0:
+            if col == 1:
                 item.setData(Qt.UserRole, current_data)
-            self.setItem(row, col+1, item)
-        # self.setItem(row, 1, QTableWidgetItem(str(current_data)))
+            self.setItem(row, col + 1, item)
+
+    def get_all_table_data(self):
+        data = []
+        for row in range(self.rowCount()):
+            row_data = [self.item(row, col).text() if self.item(row, col) else None for col in range(self.columnCount())]
+            data.append(row_data)
+        return data
 
 
-    def insert_row_data(self, row, row_item):
-        self.insertRow(row)
-        for col, value in enumerate(row_item):
-            item = QTableWidgetItem(str(value))
-            if col == 0:
-                item.setData(Qt.UserRole, row_item)
-            self.setItem(row, col, item)
-
-
-
-app = QApplication([])
-path = 'D:/tl_tools/data/原始数据/test/20240624-1'
-t = DraggableTableWidget(path)
-t.set_data()
-t.show()
-sys.exit(app.exec_())
+if __name__ == '__main__':
+    app = QApplication([])
+    path = 'D:/tl_tools/data/原始数据/jc'
+    t = DraggableTableWidget(path)
+    t.show()
+    sys.exit(app.exec_())
