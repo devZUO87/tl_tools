@@ -1,6 +1,8 @@
 import sys
+
 from PyQt5.QtWidgets import QApplication
-from .widgets.main_pyqt import ImportDataWindow  # 从主窗口模块导入你的窗口
+
+from TlTools.widgets.main_pyqt import ImportDataWindow  # 从主窗口模块导入你的窗口
 
 
 def main():
