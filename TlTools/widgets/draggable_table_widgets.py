@@ -2,7 +2,6 @@
 # @File  : 拖拽表格.py
 # @Time  : 2024/8/28
 # @Author: zuo
-import os
 import sys
 
 from PyQt5.QtCore import Qt
@@ -12,7 +11,6 @@ from PyQt5.QtWidgets import (QApplication, QTableWidget, QTableWidgetItem,
                              QPushButton, QLabel, QHBoxLayout)
 
 from TlTools.data.data_oop import MeasurementData
-
 
 
 class DraggableTableWidget(QTableWidget):

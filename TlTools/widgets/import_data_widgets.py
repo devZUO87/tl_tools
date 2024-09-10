@@ -1,19 +1,16 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog
 
-from TlTools.widgets.draggable_table_widgets import DraggableTableWidget
-
-
 class ImportDataWindow(QWidget):
-    def __init__(self):
+    def __init__(self, main_window):
         super().__init__()
-        self.table_widget = None
+        self.main_window = main_window  # 传入主窗口实例
         self.import_button = None
         self.label = None
         self.initUI()
 
     def initUI(self):
         self.setWindowTitle('导入数据')
-        self.setGeometry(100, 100, 300, 200)
+        self.setGeometry(400, 400, 300, 200)
 
         layout = QVBoxLayout()
 
@@ -31,6 +28,6 @@ class ImportDataWindow(QWidget):
         path = QFileDialog.getExistingDirectory(self, '选择文件夹')
         if path:
             self.label.setText(f'已选择: {path}')
-            self.table_widget = DraggableTableWidget(path)
-            self.table_widget.show()
-            self.close()
+            # 调用主窗口的方法来创建并显示DraggableTableWidget
+            self.main_window.set_table_widget(path)
+            self.close()  # 关闭导入窗口

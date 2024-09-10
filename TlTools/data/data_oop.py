@@ -72,6 +72,7 @@ class MeasurementData:
         return groups[0] + groups[1]
 
     def data_transform(self):
+        # 数据转换
         for key, value in self.original_list:
             station = self.group_by_type(key)
             for i in range(value.shape[0]):
