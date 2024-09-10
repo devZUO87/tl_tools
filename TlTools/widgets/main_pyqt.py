@@ -1,9 +1,11 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QStatusBar, QMessageBox
+
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QStatusBar
+
 from TlTools.widgets.draggable_table_widgets import DraggableTableWidget
+from TlTools.widgets.file_menu import FileMenu
 from TlTools.widgets.import_data_widgets import ImportDataWindow
 from TlTools.widgets.matching_measure_widgets import MatchingMeasureWidget
-from TlTools.widgets.file_menu import FileMenu
 
 
 class MainWindow(QMainWindow):

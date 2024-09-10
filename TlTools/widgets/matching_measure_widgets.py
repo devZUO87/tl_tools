@@ -1,5 +1,7 @@
-from PyQt5.QtWidgets import QWidget, QApplication
+from PyQt5.QtWidgets import QWidget
+
 from TlTools.widgets.menu_component import MenuComponent
+
 
 class MatchingMeasureWidget(QWidget):
     def __init__(self, main_window):

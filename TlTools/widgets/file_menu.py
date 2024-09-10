@@ -1,4 +1,5 @@
-from PyQt5.QtWidgets import QWidget, QMessageBox, QLabel
+from PyQt5.QtWidgets import QWidget, QMessageBox
+
 from TlTools.widgets.menu_component import MenuComponent
 
 
