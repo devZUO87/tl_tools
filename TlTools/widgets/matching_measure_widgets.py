@@ -22,8 +22,6 @@ class MatchingMeasureWidget(QWidget):
         self.menu_component.add_action(data_menu, '导入外业手簿', '导入外业手簿', self.importData)
 
 
-
-
     def exportData(self):
         print('导出匹配表')
 
@@ -31,8 +29,6 @@ class MatchingMeasureWidget(QWidget):
         print('导入外业手簿')
 
 
-    def showData(self):
-        print(self.main_window.drag_table_widget_data)
 
 
 
