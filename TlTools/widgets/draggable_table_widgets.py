@@ -23,6 +23,7 @@ class DraggableTableWidget(QTableWidget):
         self.setHorizontalHeaderLabels(self.data_keys)  # 设置表头
         self.path = path
         self.grouped_data = MeasurementData(path).grouped_data
+        self.all_table_data = MeasurementData(path).original_data
         self.current_indices = {key: 0 for key in self.grouped_data}
         self.cur_key = None
         self.drag_row = -1
@@ -50,7 +51,6 @@ class DraggableTableWidget(QTableWidget):
         for col, key in enumerate(self.drag_keys):
             text_label = QLabel(str(row_data[col]), self.drag_widget)
             text_label.setFixedWidth(self.columnWidth(col))
-            # text_label.setAlignment(Qt.AlignCenter)
             drag_layout.addWidget(text_label)
             button = QPushButton(self)
             button.setFocusPolicy(Qt.NoFocus)
@@ -126,7 +126,6 @@ class DraggableTableWidget(QTableWidget):
         for row, key in enumerate(self.grouped_data.keys()):
             self.insertRow(row)
             self.update_table_row(row, key)
-            # print(len(self.grouped_data[key]))
             if len(self.grouped_data[key]) > 1:
                 self._add_navigation_buttons(row, key)
 

@@ -8,7 +8,6 @@ from TlTools.widgets.main_window import MainWindow  # 从主窗口模块导入�
 def main():
     app = QApplication(sys.argv)
     main_window = MainWindow()
-    main_window.show()
     sys.exit(app.exec_())
 
 
