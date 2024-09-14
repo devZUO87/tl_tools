@@ -1,4 +1,6 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog
+from TlTools.data.data_oop import MeasurementData
+
 
 class ImportDataWindow(QWidget):
     def __init__(self, main_window):
@@ -24,10 +26,14 @@ class ImportDataWindow(QWidget):
         self.setLayout(layout)
 
     def import_data(self):
+
         # 弹出文件夹选择对话框
         path = QFileDialog.getExistingDirectory(self, '选择文件夹')
         if path:
-            self.label.setText(f'已选择: {path}')
+            self.main_window.showMaximized()
+            self.main_window.status_bar.showMessage(f"已加载数据: {path}")
             # 调用主窗口的方法来创建并显示DraggableTableWidget
-            self.main_window.set_table_widget(path)
+            example = MeasurementData(path)
+            original_data = example.original_data
+            self.main_window.set_table_widget(original_data)
             self.close()  # 关闭导入窗口

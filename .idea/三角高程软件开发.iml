@@ -8,6 +8,7 @@
       <excludeFolder url="file://$MODULE_DIR$/数据/20240627-1" />
       <excludeFolder url="file://$MODULE_DIR$/数据/YQ0311" />
       <excludeFolder url="file://$MODULE_DIR$/数据/jc" />
+      <excludeFolder url="file://$MODULE_DIR$/数据" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
