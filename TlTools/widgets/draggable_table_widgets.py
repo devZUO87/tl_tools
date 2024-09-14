@@ -3,14 +3,11 @@
 # @Time  : 2024/8/28
 # @Author: zuo
 
-import sys
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QBrush, QColor, QPalette
-from PyQt5.QtWidgets import (QApplication, QTableWidget, QTableWidgetItem,
+from PyQt5.QtWidgets import (QTableWidget, QTableWidgetItem,
                              QAbstractItemView, QHeaderView, QWidget,
                              QPushButton, QLabel, QHBoxLayout)
-
-from TlTools.data.data_oop import MeasurementData
 
 # 定义颜色常量，方便后续维护和修改
 HIGHLIGHT_COLOR = QColor(254, 163, 86)

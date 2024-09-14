@@ -5,8 +5,8 @@ import openpyxl
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QStatusBar, QMessageBox, QFileDialog, \
     QTableWidgetItem, QTableWidget, QHeaderView
 from openpyxl.reader.excel import load_workbook
-from openpyxl.workbook import Workbook
 from openpyxl.styles import Alignment
+from openpyxl.workbook import Workbook
 
 from TlTools.widgets.draggable_table_widgets import DraggableTableWidget
 from TlTools.widgets.import_data_widgets import ImportDataWindow
