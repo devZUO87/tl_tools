@@ -14,3 +14,4 @@ class MenuComponent(QMenuBar):
         action.triggered.connect(trigger_function)
         menu.addAction(action)
         return action
+
