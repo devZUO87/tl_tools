@@ -8,6 +8,7 @@ from openpyxl.reader.excel import load_workbook
 from openpyxl.styles import Alignment
 from openpyxl.workbook import Workbook
 
+from TlTools.function.func_oop import Measurement
 from TlTools.widgets.draggable_table_widgets import DraggableTableWidget
 from TlTools.widgets.import_data_widgets import ImportDataWindow
 from TlTools.widgets.menu_component import MenuComponent
@@ -51,6 +52,7 @@ class MainWindow(QMainWindow):
         self.data = []
 
 
+
     def initFileMenu(self):
         file_menu = self.menu_component.add_menu('文件')
         self.menu_component.add_action(file_menu, '打开', '打开文件夹', self.openFile)
@@ -67,6 +69,7 @@ class MainWindow(QMainWindow):
 
         measure_menu = self.menu_component.add_menu('处理')
         self.menu_component.add_action(measure_menu, '匹配外业手簿', '匹配', self.set_draggable_table_widget)
+        self.menu_component.add_action(measure_menu, '计算对象观测中误差', '对象观测计算', self.calculate_draggable_table_widget)
 
 
         help_menu = self.menu_component.add_menu('帮助')
@@ -133,7 +136,7 @@ class MainWindow(QMainWindow):
         data = []
         for row in range(self.table_widget.rowCount()):
             if self.matched:
-                row_data = [self.table_widget.item(row, col).text() if self.table_widget.item(row, col) else None for col in range(self.table_widget.columnCount())[1:]]
+                row_data = [self.table_widget.item(row, col).text() if self.table_widget.item(row, col) else None for col in range(self.table_widget.columnCount())[1:-1]]
             else:
                 row_data = [self.table_widget.item(row, col).text() if self.table_widget.item(row, col) else None for col in range(self.table_widget.columnCount())]
             data.append(row_data)
@@ -175,6 +178,7 @@ class MainWindow(QMainWindow):
         self.get_grouped_data()
         self.sort_grouped_data()
         self.table_widget.clear()
+
         self.table_widget = DraggableTableWidget(self.grouped_data)
         central_widget = QWidget()
         layout = QVBoxLayout()
@@ -217,8 +221,52 @@ class MainWindow(QMainWindow):
         # 重新构建 grouped_data 按新顺序
         self.grouped_data = {k: v for k, v in sorted_data}
 
+        # 遍历排序后的 grouped_data 并调用计算逻辑
+        for key, data in self.grouped_data.items():
+            updated_data = []  # 创建一个新的列表来存储更新后的数据
+            for item in data:
+                # 生成 Measurement 实例并计算结果
+                results = Measurement.calculate_all(
+                    s=float(item[5]), z=float(item[4]), i=float(item[6]), l=float(item[7]),
+                    t_a=float(item[8]), t_b=float(item[9]), p_a=float(item[10]), p_b=float(item[11])
+                )
+
+                # 将计算结果转换为元组
+                additional_values = tuple(results.values())
+                print(additional_values)
+
+                # 追加计算结果到原始项
+                updated_item = item + additional_values
+
+                # 将更新后的项添加到更新后的数据列表中
+                updated_data.append(updated_item)
+
+            # 更新 grouped_data 字典中的键
+            self.grouped_data[key] = updated_data
+
+            # 将计算的高度等中间结果更新到对应的 grouped_data 中
+        print(self.grouped_data)
+
+    def calculate_draggable_table_widget(self):
+        measurements = []
+        datas = self.get_all_table_data()
+        if self.matched:
+            for data in datas:
+                results = Measurement.calculate_all(
+                    s=float(data[5]), z=float(data[4]), i=float(data[6]), l=float(data[7]),
+                    t_a=float(data[8]), t_b=float(data[9]), p_a=float(data[10]), p_b=float(data[11])
+                )
+                print("结果:", results)
+                measurements.append(results["height"])
+            print(measurements)
+        else:
+            QMessageBox.warning(self, '错误', '没有匹配的数据')
+
+
     def showAbout(self):
-        QMessageBox.about(self, '关于', '这是一个三角高程测量程序')
+        QMessageBox.about(self, "关于", "这是一个程序")
+    # 使用函数处理数据
+
 
 
 if __name__ == '__main__':
