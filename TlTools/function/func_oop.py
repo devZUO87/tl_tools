@@ -30,8 +30,8 @@ class Measurement:
                   (1 - k) * (d ** 2) / (2 * r))
 
         return {
-            "mcd": mcd,
-            "s_correction": s_correction,
-            "d": d,
-            "height": height
+            "mcd": round(mcd,5),
+            "s_correction": round(s_correction,5),
+            "d":  round(d,5),
+            "height": round(height,5)
         }

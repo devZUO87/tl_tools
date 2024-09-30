@@ -1,3 +1,4 @@
+import math
 import sys
 from collections import defaultdict
 
@@ -19,6 +20,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.matched = None # 匹配状态
+        self.calculated = None  # 计算状态
         self.setWindowTitle("三角高程计算工具")
 
         # 创建状态栏
@@ -65,7 +67,7 @@ class MainWindow(QMainWindow):
         export_menu = self.menu_component.add_menu('导出')
         self.menu_component.add_action(export_menu, '导出外业测量数据', '导出外业测量数据', self.exportOutsideTable)
         self.menu_component.add_action(export_menu, '导出三角高程测量计算总表', '导出三角高程测量计算总表',
-                                       self.showAbout)
+                                       self.exportOutsideTable)
 
         measure_menu = self.menu_component.add_menu('处理')
         self.menu_component.add_action(measure_menu, '匹配外业手簿', '匹配', self.set_draggable_table_widget)
@@ -145,9 +147,15 @@ class MainWindow(QMainWindow):
     def save_data_to_excel(self,data):
         wb = Workbook()
         ws = wb.active
-        ws.append(
-            ["文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距", "仪器高(m)", "目标高(m)", "测站温度",
-             "目标温度", "测站气压", "目标气压"])
+        if self.calculated:
+            ws.append(
+                ["文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距(m)", "仪器高(m)", "目标高(m)",
+                 "测站温度(℃)", "目标温度(℃)", "测站气压(hPa)", "目标气压(hPa)", "气象改正(m)", "加乘常数改正(m)",
+                 "平距(m)", "高差(m)", "高差中数(m)", "往返不符值(mm)", "限差(mm)"])
+        else:
+            ws.append(
+                ["文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距", "仪器高(m)", "目标高(m)", "测站温度",
+                 "目标温度", "测站气压", "目标气压"])
         # 写入数据
         for row in data:
             # 处理 None 值，避免写入到 Excel
@@ -233,7 +241,7 @@ class MainWindow(QMainWindow):
 
                 # 将计算结果转换为元组
                 additional_values = tuple(results.values())
-                print(additional_values)
+                # print(additional_values)
 
                 # 追加计算结果到原始项
                 updated_item = item + additional_values
@@ -245,22 +253,39 @@ class MainWindow(QMainWindow):
             self.grouped_data[key] = updated_data
 
             # 将计算的高度等中间结果更新到对应的 grouped_data 中
-        print(self.grouped_data)
+        # print(self.grouped_data)
 
     def calculate_draggable_table_widget(self):
-        measurements = []
-        datas = self.get_all_table_data()
+        self.calculated = True
         if self.matched:
-            for data in datas:
-                results = Measurement.calculate_all(
-                    s=float(data[5]), z=float(data[4]), i=float(data[6]), l=float(data[7]),
-                    t_a=float(data[8]), t_b=float(data[9]), p_a=float(data[10]), p_b=float(data[11])
-                )
-                print("结果:", results)
-                measurements.append(results["height"])
-            print(measurements)
+            for i in range(0, self.table_widget.rowCount(), 2):  # 每两行遍历
+                if i + 1 >= self.table_widget.rowCount():  # 确保有下一行
+                    continue
+
+                # 获取当前行和下一行的第六列和第十四列数据
+                def get_row_value(row, col):
+                    item = self.table_widget.item(row, col)
+                    return float(item.text()) if item else 0
+
+                first_row_value = get_row_value(i, 16)
+                second_row_value = get_row_value(i + 1, 16)
+                first_row_value_1 = get_row_value(i, 14)
+                second_row_value_1 = get_row_value(i + 1, 14)
+
+                # 计算平均值、和与容差
+                average_d =round( 0.5 * (first_row_value - second_row_value),5)
+                sum_value = round((first_row_value + second_row_value) * 1000,5)
+                tolerance = round(40 * math.sqrt(0.5 * (abs(first_row_value_1) + abs(second_row_value_1)) / 1000),5)
+
+                # 将结果追加到当前行的指定列
+                self.table_widget.setItem(i, self.table_widget.columnCount() - 4, QTableWidgetItem(str(average_d)))
+                self.table_widget.setItem(i, self.table_widget.columnCount() - 3, QTableWidgetItem(str(sum_value)))
+                self.table_widget.setItem(i, self.table_widget.columnCount() - 2, QTableWidgetItem(str(tolerance)))
+
+
         else:
-            QMessageBox.warning(self, '错误', '没有匹配的数据')
+            QMessageBox.warning(self, '错误', "没有可计算的数据")
+            # 可以在这里显示结果，例如通过弹窗或更新表格
 
 
     def showAbout(self):
