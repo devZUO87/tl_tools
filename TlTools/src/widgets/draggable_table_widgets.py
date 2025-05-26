@@ -22,7 +22,7 @@ TARGET_COLUMN_INDEX = 2
 class DraggableTableWidget(QTableWidget):
     def __init__(self, grouped_data, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 
         # 表头数据
         # self.data_keys = ["上一个", "气象改正(m)", "加乘常数改正(m)", "平距(m)", "高差(m)", "下一个"]
@@ -60,6 +60,8 @@ class DraggableTableWidget(QTableWidget):
 
     def set_drag_data_on_widget(self, row_data):
         """设置拖拽窗口的数据，避免重复创建组件"""
+        if len(row_data) < len(self.drag_keys):
+            row_data = list(row_data) + [''] * (len(self.drag_keys) - len(row_data))
         if self.drag_widget.layout() is None:
             drag_layout = QHBoxLayout(self.drag_widget)
             drag_layout.setContentsMargins(10, 0, 0, 0)
@@ -108,7 +110,7 @@ class DraggableTableWidget(QTableWidget):
             cur_item = self.item(row, TARGET_COLUMN_INDEX)
             if cur_item:
                 self.drag_row = row
-                self.cur_key = (cur_item.data(Qt.UserRole)[1], cur_item.data(Qt.UserRole)[2])
+                self.cur_key = (cur_item.data(Qt.ItemDataRole.UserRole)[1], cur_item.data(Qt.ItemDataRole.UserRole)[2])
 
                 # 设置拖拽窗口的数据
                 self.set_drag_data_on_widget(self.grouped_data[self.cur_key][self.current_indices[self.cur_key]])
@@ -164,7 +166,7 @@ class DraggableTableWidget(QTableWidget):
         """设置表格的初始数据"""
         self.setColumnCount(len(self.data_keys))
         self.setHorizontalHeaderLabels(self.data_keys)
-        self.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
 
         for row, key in enumerate(self.grouped_data.keys()):
             # print(f"Setting row {row} with data: {key}")
@@ -181,6 +183,7 @@ class DraggableTableWidget(QTableWidget):
         else:
             self.current_indices[key] = (current_index + 1) % len(self.grouped_data[key])
         self.update_table_row(row, key)
+        # todo 自动计算
 
     def update_table_row(self, row, key):
         """更新指定行的数据"""
@@ -192,7 +195,7 @@ class DraggableTableWidget(QTableWidget):
             if not item or item.text() != str(value):  # 只有在数据不同的时候才更新
                 item = QTableWidgetItem(str(value))
                 if col == FILE_COLUMN_INDEX:
-                    item.setData(Qt.UserRole, current_data)
+                    item.setData(Qt.ItemDataRole.UserRole, current_data)
                 self.setItem(row, col + 1, item)
 
 

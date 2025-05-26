@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog
 
-from TlTools.data.data_oop import MeasurementData
+from src.data.data_oop import MeasurementData
 
 
 class ImportDataWindow(QWidget):

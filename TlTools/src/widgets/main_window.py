@@ -15,14 +15,15 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QHeaderView,
 )
+from PyQt6.QtGui import QPalette, QColor
 from openpyxl.reader.excel import load_workbook
 from openpyxl.styles import Alignment
 from openpyxl.workbook import Workbook
 
-from TlTools.function.func_oop import Measurement
-from TlTools.widgets.draggable_table_widgets import DraggableTableWidget
-from TlTools.widgets.import_data_widgets import ImportDataWindow
-from TlTools.widgets.menu_component import MenuComponent
+from src.function.measurement import Measurement
+from src.widgets.draggable_table_widgets import DraggableTableWidget
+from src.widgets.import_data_widgets import ImportDataWindow
+from src.widgets.menu_component import MenuComponent
 
 
 class MainWindow(QMainWindow):
@@ -32,7 +33,15 @@ class MainWindow(QMainWindow):
         self.matched = None # 匹配状态
         self.calculated = None  # 计算状态
         self.setWindowTitle("三角高程计算工具")
-
+        self.init_ui()
+        self.setup_styles()
+        self.resize(800, 600)
+           # 将窗口移动到屏幕中心
+        screen = QApplication.primaryScreen().geometry()
+        window_size = self.geometry()
+        x = (screen.width() - window_size.width()) // 2
+        y = (screen.height() - window_size.height()) // 2
+        self.move(x, y)
         # 创建状态栏
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -50,7 +59,7 @@ class MainWindow(QMainWindow):
         # 添加导入数据窗口
         self.grouped_data = defaultdict(list)
         self.import_data_window = ImportDataWindow(self)
-        self.import_data_window.show()
+        # self.import_data_window.show()
 
         # Create a table widget
         self.table_widget = QTableWidget()
@@ -59,11 +68,109 @@ class MainWindow(QMainWindow):
         self.table_widget.setColumnCount(len(self.data_keys))
         self.table_widget.setHorizontalHeaderLabels(self.data_keys)
         self.layout.addWidget(self.table_widget)
-        self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
         self.data = []
 
 
+    def setup_styles(self):
+            """设置全局样式"""
+            self.setAutoFillBackground(True)
+            palette = self.palette()
+            palette.setColor(QPalette.ColorRole.Window, QColor(240, 240, 240))  # 浅灰色背景
+            palette.setColor(QPalette.ColorRole.WindowText, QColor(0, 0, 0))    # 黑色文字
+            palette.setColor(QPalette.ColorRole.Button, QColor(225, 225, 225))  # 按钮颜色
+            palette.setColor(QPalette.ColorRole.ButtonText, QColor(0, 0, 0))    # 按钮文字颜色
+            self.setPalette(palette)
+
+    def init_ui(self):
+        # 现代化QSS样式
+        self.setStyleSheet("""
+        QWidget {
+            background: #FFFFFF;
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            color: #222;
+        }
+        QGroupBox {
+            border: 1px solid #E5E5E5;
+            border-radius: 10px;
+            margin-top: 16px;
+            background: #fff;
+        }
+        QGroupBox:title {
+            subcontrol-origin: margin;
+            left: 12px;
+            padding: 0 6px 0 6px;
+            font-weight: bold;
+            color: #0078D4;
+            font-size: 11pt;
+        }
+        QPushButton {
+            background-color: #0078D4;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 28px;
+            font-size: 11pt;
+            font-weight: 600;
+        }
+        QPushButton:hover {
+            background-color: #005A9E;
+        }
+        QLineEdit, QComboBox {
+            border: 1px solid #BDBDBD;
+            border-radius: 8px;
+            padding: 6px 10px;
+            background: #fff;
+            font-size: 10.5pt;
+        }
+        QComboBox::drop-down {
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 28px;
+            border: none;
+            border-top-right-radius: 8px;
+            border-bottom-right-radius: 8px;
+            border-top-left-radius: 0px;
+            border-bottom-left-radius: 0px;
+            background: #E3F2FD;
+            margin: 1px 1px 1px 0;
+        }
+        QComboBox QAbstractItemView {
+            border: 1px solid #BDBDBD;
+            background: #fff;
+            selection-background-color: #E3F2FD;
+            selection-color: #0078D4;
+            border-radius: 8px;
+            padding: 4px;
+            margin: 0px;
+            outline: none;        
+        }
+        QComboBox::view {
+            margin: 0;
+            padding: 0;
+            border-radius: 8px;
+            background: transparent;
+        }               
+        QLabel {
+            font-size: 10.5pt;
+        }
+        QProgressBar {
+            border: 1px solid #BDBDBD;
+            border-radius: 8px;
+            text-align: center;
+            background: #E3F2FD;
+            height: 18px;
+        }
+        QProgressBar::chunk {
+            background-color: #0078D4;
+            border-radius: 8px;
+        }
+        QCheckBox {
+            spacing: 8px;
+            font-size: 10pt;
+        }
+        """)
 
     def initFileMenu(self):
         file_menu = self.menu_component.add_menu('文件')
