@@ -1,4 +1,11 @@
-/数据/
-/.idea/
-/.venv/
-/.cursorignore
+数据/
+.idea/
+.venv/
+.cursorignore
+TlTools/__pycache__/
+TlTools/auth/__pycache__/
+TlTools/data/__pycache__/
+TlTools/function/__pycache__/
+TlTools/src/__pycache__/
+TlTools/src/widgets/__pycache__/
+
