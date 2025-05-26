@@ -3,7 +3,7 @@ import os
 import traceback
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from src.auth.auth import AuthManager
-from src.ui.register_dialog import RegisterDialog
+from src.widgets.register_dialog import RegisterDialog
 from src.widgets.main_window import MainWindow  # 从主窗口模块导入你的窗口
 
 

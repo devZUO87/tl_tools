@@ -24,6 +24,7 @@ from src.function.measurement import Measurement
 from src.widgets.draggable_table_widgets import DraggableTableWidget
 from src.widgets.import_data_widgets import ImportDataWindow
 from src.widgets.menu_component import MenuComponent
+from src.data.data_service import DataService
 
 
 class MainWindow(QMainWindow):
@@ -71,6 +72,7 @@ class MainWindow(QMainWindow):
         self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
         self.data = []
+        self.data_service = DataService()
 
 
     def setup_styles(self):
@@ -207,16 +209,10 @@ class MainWindow(QMainWindow):
         try:
             file_dialog_result = QFileDialog.getOpenFileName(self, '选择文件', '', 'Excel Files (*.xlsx)')
             file_path = file_dialog_result[0]
-            self.data = []
             if file_path:
-                wb = load_workbook(file_path)
-                ws = wb.active  # active 是属性，不是方法
-
-                # 加载 Excel 数据
-                for row in ws.iter_rows(min_row=2,values_only=True):
-                    self.data.append(row)
-                # 更新表格内容
-                self.set_table_widget(self.data)
+                data = self.data_service.import_excel(file_path)
+                self.data = data
+                self.set_table_widget(data)
             else:
                 QMessageBox.warning(self, '错误', '没有选择文件')
         except AttributeError:
@@ -245,8 +241,11 @@ class MainWindow(QMainWindow):
         if self.table_widget:
             try:
                 data = self.get_all_table_data()
-                self.save_data_to_excel(data)
-
+                file_dialog_result = QFileDialog.getSaveFileName(self, '选择文件夹和输入文件名', '', 'Excel Files (*.xlsx)')
+                file_path = file_dialog_result[0]
+                if file_path:
+                    self.data_service.export_excel(data, file_path, calculated=self.calculated)
+                    QMessageBox.warning(self, '完成', f'文件已保存到: {file_path}')
             except Exception as e:
                 msg_box = QMessageBox()
                 msg_box.setIcon(QMessageBox.Icon.Warning)
@@ -266,52 +265,13 @@ class MainWindow(QMainWindow):
             data.append(row_data)
         return data
 
-    def save_data_to_excel(self,data):
-        wb = Workbook()
-        ws = wb.active
-        if self.calculated:
-            ws.append(
-                ["文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距(m)", "仪器高(m)", "目标高(m)",
-                 "测站温度(℃)", "目标温度(℃)", "测站气压(hPa)", "目标气压(hPa)", "气象改正(m)", "加乘常数改正(m)",
-                 "平距(m)", "高差(m)", "高差中数(m)", "往返不符值(mm)", "限差(mm)"])
-        else:
-            ws.append(
-                ["文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距", "仪器高(m)", "目标高(m)", "测站温度",
-                 "目标温度", "测站气压", "目标气压"])
-        # 写入数据
-        for row in data:
-            # 处理 None 值，避免写入到 Excel
-            clean_row = [cell if cell is not None else '' for cell in row]
-            ws.append(clean_row)
-        # 表格格式
-        for row in ws.iter_rows(min_row=1):
-            for cell in row:
-                cell.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center')
-        # 宽度
-        # 定义字典来存储各列的宽度
-        column_widths = {'A': 20, 'B': 10, 'C': 10, 'D': 16, 'E': 20, 'F': 20, 'G': 12, 'H': 12, 'I': 12, 'J': 12, 'K': 12, 'L': 12, 'M': 12, 'N': 12, 'O': 12, 'P': 12}
-
-        # 使用循环设置列宽
-        for col, width in column_widths.items():
-            ws.column_dimensions[col].width = width
-
-        # 保存为 Excel 文件
-        file_dialog_result = QFileDialog.getSaveFileName(self, '选择文件夹和输入文件名', '', 'Excel Files (*.xlsx)')
-        file_path = file_dialog_result[0]
-
-        if file_path:
-            # 保存文件
-            wb.save(file_path)
-            QMessageBox.warning(self, '完成', f'文件已保存到: {file_path}')
-
     def set_draggable_table_widget(self):
         if self.matched:
             QMessageBox.warning(self, '错误', '已匹配，无法重复匹配')
         else:
-            self.grouped_data = defaultdict(list)
+            self.grouped_data = self.data_service.group_data(self.data)
             self.matched = True
-            self.get_grouped_data()
-            self.sort_grouped_data()
+            self.grouped_data = self.data_service.sort_and_calculate(self.grouped_data)
             self.table_widget.clear()
 
             self.table_widget = DraggableTableWidget(self.grouped_data)
@@ -323,66 +283,14 @@ class MainWindow(QMainWindow):
             # 将 central_widget 作为主窗口的中央组件
             self.setCentralWidget(central_widget)
 
-    def get_grouped_data(self):
-        # 根据 i1 和 i2 分组，返回分组后的数据
-        for value in self.data:
-            group_key = (value[1], value[2])
-            self.grouped_data[group_key].append(value)
-
-    def sort_grouped_data(self):
-        paired_data = []  # 存储有对应 (b, a) 键的键对
-        unpaired_data = []  # 存储没有对应 (b, a) 键的键
-        visited = set()  # 用于标记已经处理过的键
-
-        # 遍历 grouped_data
-        for key in self.grouped_data.keys():
-            if key not in visited:
-                reverse_key = (key[1], key[0])  # 生成 (b, a) 键
-
-                if reverse_key in self.grouped_data:
-                    # 如果存在对应的 (b, a) 键，加入 paired_data
-                    paired_data.append((key, self.grouped_data[key]))
-                    paired_data.append((reverse_key, self.grouped_data[reverse_key]))
-                    visited.add(key)
-                    visited.add(reverse_key)
-                else:
-                    # 如果没有对应的 (b, a) 键，加入 unpaired_data
-                    unpaired_data.append((key, self.grouped_data[key]))
-                    visited.add(key)
-
-        # 合并有对应 (b, a) 的数据和没有对应的数据
-        sorted_data = paired_data + unpaired_data
-
-        # 重新构建 grouped_data 按新顺序
-        self.grouped_data = {k: v for k, v in sorted_data}
-
-        # 遍历排序后的 grouped_data 并调用计算逻辑
-        for key, data in self.grouped_data.items():
-            updated_data = []  # 创建一个新列表来存储更新后的数据
-            for item in data:
-                # 生成 Measurement 实例并计算结果
-                results = Measurement.calculate_all(
-                    s=float(item[5]), z=float(item[4]), i=float(item[6]), l=float(item[7]),
-                    t_a=float(item[8]), t_b=float(item[9]), p_a=float(item[10]), p_b=float(item[11])
-                )
-
-                # 将计算结果转换为元组
-                additional_values = tuple(results.values())
-                # print(additional_values)
-
-                # 追加计算结果到原始项
-                updated_item = item + additional_values
-
-                # 将更新后的项添加到更新后的数据列表中
-                updated_data.append(updated_item)
-
-            # 更新 grouped_data 字典中的键
-            self.grouped_data[key] = updated_data
-
-            # 将计算的高度等中间结果更新到对应的 grouped_data 中
-        # print(self.grouped_data)
-
     def calculate_draggable_table_widget(self):
+        '''
+        计算对象观测中误差
+        1. 获取当前行和下一行的第六列和第十四列数据
+        2. 计算平均值、和与容差
+        3. 将结果追加到当前行的指定列
+        4. 更新表格
+        '''
         self.calculated = True
         if self.matched:
             for i in range(0, self.table_widget.rowCount(), 2):  # 每两行遍历
