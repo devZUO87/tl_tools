@@ -19,6 +19,7 @@ from PyQt6.QtGui import QPalette, QColor
 from src.widgets.draggable_table_widgets import DraggableTableWidget
 from src.widgets.import_data_widgets import ImportDataWindow
 from src.widgets.menu_component import MenuComponent
+from src.widgets.parameter_window import ParameterWindow
 from src.data.data_service import DataService
 
 
@@ -187,6 +188,8 @@ class MainWindow(QMainWindow):
         self.menu_component.add_action(measure_menu, '匹配外业手簿', '匹配', self.set_draggable_table_widget)
         self.menu_component.add_action(measure_menu, '计算对象观测中误差', '对象观测计算', self.calculate_draggable_table_widget)
 
+        measure_menu = self.menu_component.add_menu('设置')
+        self.menu_component.add_action(measure_menu, '参数设置', '参数设置', self.set_parameter)
 
         help_menu = self.menu_component.add_menu('帮助')
         self.menu_component.add_action(help_menu, '关于', '关于程序', self.showAbout)
@@ -302,7 +305,6 @@ class MainWindow(QMainWindow):
                 second_row_value = get_row_value(i + 1, 16)
                 first_row_value_1 = get_row_value(i, 6)
                 second_row_value_1 = get_row_value(i + 1, 6)
-                print(first_row_value_1,second_row_value_1)
 
                 # 计算平均值、和与容差
                 average_d =round( 0.5 * (first_row_value - second_row_value),5)
@@ -319,9 +321,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, '错误', "没有可计算的数据")
             # 可以在这里显示结果，例如通过弹窗或更新表格
 
-
     def showAbout(self):
         QMessageBox.about(self, "关于", "这是一个程序")
+    
+    def set_parameter(self):
+        parameter_window = ParameterWindow(self)
+        parameter_window.exec()
     # 使用函数处理数据
 
 

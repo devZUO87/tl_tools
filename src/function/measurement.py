@@ -1,14 +1,61 @@
 import math
+import os
+import json
 
 
 class Measurement:
     @staticmethod
-    def calculate_all(s, z, i, l, t_a, t_b, p_a, p_b, h_a=0.6, h_b=0.6, k=0.14, pc=-0.28, mc=-2.43, r=6371000):
+    def load_parameters():
+        """加载计算参数"""
+        # 默认参数值
+        default_params = {
+            "h_a": 0.6,
+            "h_b": 0.6,
+            "k": 0.14,
+            "pc": -0.28,
+            "mc": -2.43,
+            "r": 6371000
+        }
+        
+        # 尝试从配置文件加载参数
+        config_dir = os.path.join(os.path.expanduser("~"), ".tl_tools")
+        config_file = os.path.join(config_dir, "parameters.json")
+        
+        # 如果配置文件不存在，使用默认值
+        if not os.path.exists(config_file):
+            return default_params
+        
+        try:
+            with open(config_file, 'r') as f:
+                params = json.load(f)
+                
+            # 确保所有必要的参数都存在
+            for key in default_params:
+                if key not in params:
+                    params[key] = default_params[key]
+                    
+            return params
+        except Exception:
+            return default_params
+
+    @staticmethod
+    def calculate_all(s, z, i, l, t_a, t_b, p_a, p_b, h_a=None, h_b=None, k=None, pc=None, mc=None, r=None):
+        # 加载参数设置
+        params = Measurement.load_parameters()
+        
+        # 如果未提供参数，使用加载的参数
+        h_a = h_a if h_a is not None else params["h_a"]
+        h_b = h_b if h_b is not None else params["h_b"]
+        k = k if k is not None else params["k"]
+        pc = pc if pc is not None else params["pc"]
+        mc = mc if mc is not None else params["mc"]
+        r = r if r is not None else params["r"]
+        
         # 气象学改正
         p = (p_a + p_b) / 2 
         # 温度改正
         t = (t_a + t_b) / 2
-        # 高度改正
+        # 湿度改正
         h = (h_a + h_b) / 2
         # 水汽压
         x = 7.5 * t / (t + 237.3) + 0.7857
