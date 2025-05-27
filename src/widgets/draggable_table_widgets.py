@@ -20,7 +20,7 @@ TARGET_COLUMN_INDEX = 2
 
 
 class DraggableTableWidget(QTableWidget):
-    def __init__(self, grouped_data, *args, **kwargs):
+    def __init__(self, grouped_data, main_window, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 
@@ -35,6 +35,7 @@ class DraggableTableWidget(QTableWidget):
 
         self.grouped_data = grouped_data
 
+        self.main_window = main_window
         self.current_indices = {key: 0 for key in self.grouped_data}
         self.cur_key = None  # 当前拖拽的键
         self.drag_row = -1  # 拖拽行的标识
@@ -183,6 +184,8 @@ class DraggableTableWidget(QTableWidget):
         else:
             self.current_indices[key] = (current_index + 1) % len(self.grouped_data[key])
         self.update_table_row(row, key)
+        self.main_window.calculate_draggable_table_widget()
+        
         # todo 自动计算
 
     def update_table_row(self, row, key):

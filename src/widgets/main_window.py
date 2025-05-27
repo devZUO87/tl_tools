@@ -16,11 +16,6 @@ from PyQt6.QtWidgets import (
     QHeaderView,
 )
 from PyQt6.QtGui import QPalette, QColor
-from openpyxl.reader.excel import load_workbook
-from openpyxl.styles import Alignment
-from openpyxl.workbook import Workbook
-
-from src.function.measurement import Measurement
 from src.widgets.draggable_table_widgets import DraggableTableWidget
 from src.widgets.import_data_widgets import ImportDataWindow
 from src.widgets.menu_component import MenuComponent
@@ -274,7 +269,7 @@ class MainWindow(QMainWindow):
             self.grouped_data = self.data_service.sort_and_calculate(self.grouped_data)
             self.table_widget.clear()
 
-            self.table_widget = DraggableTableWidget(self.grouped_data)
+            self.table_widget = DraggableTableWidget(self.grouped_data,self)
             central_widget = QWidget()
             layout = QVBoxLayout()
             layout.addWidget(self.table_widget)
@@ -282,6 +277,8 @@ class MainWindow(QMainWindow):
 
             # 将 central_widget 作为主窗口的中央组件
             self.setCentralWidget(central_widget)
+            self.calculated = True
+            self.calculate_draggable_table_widget()
 
     def calculate_draggable_table_widget(self):
         '''
@@ -291,7 +288,6 @@ class MainWindow(QMainWindow):
         3. 将结果追加到当前行的指定列
         4. 更新表格
         '''
-        self.calculated = True
         if self.matched:
             for i in range(0, self.table_widget.rowCount(), 2):  # 每两行遍历
                 if i + 1 >= self.table_widget.rowCount():  # 确保有下一行
@@ -304,8 +300,9 @@ class MainWindow(QMainWindow):
 
                 first_row_value = get_row_value(i, 16)
                 second_row_value = get_row_value(i + 1, 16)
-                first_row_value_1 = get_row_value(i, 14)
-                second_row_value_1 = get_row_value(i + 1, 14)
+                first_row_value_1 = get_row_value(i, 6)
+                second_row_value_1 = get_row_value(i + 1, 6)
+                print(first_row_value_1,second_row_value_1)
 
                 # 计算平均值、和与容差
                 average_d =round( 0.5 * (first_row_value - second_row_value),5)
