@@ -1,5 +1,7 @@
 import math
 import sys
+import os
+import json
 from collections import defaultdict
 
 import openpyxl
@@ -69,7 +71,9 @@ class MainWindow(QMainWindow):
 
         self.data = []
         self.data_service = DataService()
-
+        
+        # 加载参数设置
+        self.load_parameters()
 
     def setup_styles(self):
             """设置全局样式"""
@@ -303,13 +307,16 @@ class MainWindow(QMainWindow):
 
                 first_row_value = get_row_value(i, 16)
                 second_row_value = get_row_value(i + 1, 16)
-                first_row_value_1 = get_row_value(i, 6)
-                second_row_value_1 = get_row_value(i + 1, 6)
+                first_row_value_1 = get_row_value(i, 15)
+                second_row_value_1 = get_row_value(i + 1, 15)
 
                 # 计算平均值、和与容差
-                average_d =round( 0.5 * (first_row_value - second_row_value),5)
-                sum_value = round((first_row_value + second_row_value) * 1000,5)
-                tolerance = round(40 * math.sqrt(0.5 * (abs(first_row_value_1) + abs(second_row_value_1)) / 1000),5)
+                average_d = round(0.5 * (first_row_value - second_row_value), 5)
+                sum_value = round((first_row_value + second_row_value) * 1000, 5)
+                
+                # 使用参数设置中的tolerance_factor而不是硬编码的40
+                tolerance_factor = self.params.get("tolerance_factor", 40)  # 如果没有该参数，使用默认值40
+                tolerance = round(tolerance_factor * math.sqrt(0.5 * (abs(first_row_value_1) + abs(second_row_value_1)) / 1000), 5)
 
                 # 将结果追加到当前行的指定列
                 self.table_widget.setItem(i, self.table_widget.columnCount() - 4, QTableWidgetItem(str(average_d)))
@@ -326,8 +333,45 @@ class MainWindow(QMainWindow):
     
     def set_parameter(self):
         parameter_window = ParameterWindow(self)
-        parameter_window.exec()
-    # 使用函数处理数据
+        result = parameter_window.exec()
+        
+        # 如果用户确认了设置，则重新加载参数
+        if result == ParameterWindow.DialogCode.Accepted:
+            self.load_parameters()
+            QMessageBox.information(self, "参数已更新", "参数设置已更新，下次计算将使用新的参数值。")
+            
+            # 如果已经匹配并计算过，则重新计算以应用新参数
+            if self.matched:
+                self.calculate_draggable_table_widget()
+
+    def load_parameters(self):
+        """加载参数设置"""
+        config_dir = os.path.join(os.path.expanduser("~"), ".tl_tools")
+        config_file = os.path.join(config_dir, "parameters.json")
+        
+        # 默认参数值
+        self.params = {
+            "h_a": 0.6,
+            "h_b": 0.6,
+            "k": 0.14,
+            "pc": -0.28,
+            "mc": -2.43,
+            "r": 6371000,
+            "tolerance_factor": 40
+        }
+        
+        # 如果配置文件存在，加载配置
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, 'r') as f:
+                    loaded_params = json.load(f)
+                    
+                # 更新参数
+                for key, value in loaded_params.items():
+                    if key in self.params:
+                        self.params[key] = value
+            except Exception as e:
+                print(f"加载参数设置失败: {str(e)}")
 
 
 

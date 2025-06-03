@@ -1,0 +1,1495 @@
+# 文件: ./src\auth\auth.py
+import uuid
+import hashlib
+import json
+import os
+import platform
+from datetime import datetime
+import base64
+from Cryptodome.Cipher import AES
+from Cryptodome.Util.Padding import pad, unpad
+from pathlib import Path
+class AuthManager:
+    def __init__(self):
+        self.app_dir = Path.home() / "AppData" / "Local" / "SeaRouteProcessor"
+        self.app_dir.mkdir(parents=True, exist_ok=True)
+        self.auth_file = self.app_dir / "auth.json"
+        self._secret_key = b"NWH@rDKYZzh!KEY!"
+        self._salt = b"K@zzh@Zuo1890807!"
+        self._code_prefix = "HD"
+        print(f"配置目录: {self.app_dir}")
+    def get_machine_code(self):
+        try:
+            system_info = platform.uname()
+            windows_uuid = None
+            try:
+                with os.popen('wmic csproduct get uuid') as p:
+                    windows_uuid = p.read().split('\n')[1].strip()
+            except:
+                pass
+            components = [
+                windows_uuid if windows_uuid else str(uuid.getnode()),  # 如果无法获取UUID，使用MAC地址
+                system_info.node,  # 计算机名
+                system_info.machine,  # 机器类型
+                os.getenv('SYSTEMDRIVE', 'C:')  # 系统盘
+            ]
+            fingerprint = ":".join(filter(None, components))
+            machine_code = hashlib.sha256(fingerprint.encode()).hexdigest()
+            return '-'.join([machine_code[i:i+6] for i in range(0, min(len(machine_code), 32), 6)])
+        except Exception as e:
+            print(f"获取机器码失败: {e}")
+            return hashlib.sha256(str(uuid.getnode()).encode()).hexdigest()[:32]
+    def _encrypt_data(self, data):
+        try:
+            iv = os.urandom(16)
+            cipher = AES.new(self._secret_key, AES.MODE_CBC, iv)
+            ct_bytes = cipher.encrypt(pad(data.encode('utf-8'), AES.block_size))
+            return base64.b64encode(iv + ct_bytes).decode('utf-8')
+        except Exception as e:
+            print(f"加密失败: {e}")
+            return None
+    def _decrypt_data(self, encrypted_data):
+        try:
+            raw_data = base64.b64decode(encrypted_data)
+            iv, ct_bytes = raw_data[:16], raw_data[16:]
+            cipher = AES.new(self._secret_key, AES.MODE_CBC, iv)
+            pt = unpad(cipher.decrypt(ct_bytes), AES.block_size)
+            return pt.decode('utf-8')
+        except Exception as e:
+            print(f"解密失败: {e}")
+            return None
+    def verify_register_code(self, machine_code, register_code):
+        try:
+            parts = register_code.split('-')
+            if len(parts) != 6:
+                return False
+            prefix, code_part1, signature, expire_timestamp, code_part2, encrypted_part = parts
+            if prefix != self._code_prefix:
+                return False
+            signature_base = f"{machine_code[:8]}{self._salt.decode()}{self._secret_key.decode()}"
+            if signature != hashlib.sha256(signature_base.encode()).hexdigest()[:8]:
+                return False
+            mixed_info = f"{machine_code}:{expire_timestamp}:{self._salt.decode()}:{self._secret_key.decode()}"
+            if code_part1 + code_part2 != hashlib.sha256(mixed_info.encode()).hexdigest():
+                return False
+            try:
+                if datetime.now() > datetime.fromtimestamp(int(expire_timestamp)):
+                    return False
+            except ValueError:
+                return False
+            return True
+        except Exception as e:
+            print(f"验证注册码失败: {e}")
+            return False
+    def save_auth_info(self, machine_code, register_code):
+        try:
+            auth_data = {
+                "machine_code": machine_code,
+                "register_code": register_code,
+                "register_time": datetime.now().isoformat(),
+                "checksum": hashlib.sha256((machine_code + register_code).encode()).hexdigest()
+            }
+            encrypted_data = self._encrypt_data(json.dumps(auth_data))
+            if not encrypted_data:
+                return False
+            temp_file = self.auth_file.with_suffix('.tmp')
+            try:
+                with open(temp_file, 'w', encoding='utf-8') as f:
+                    f.write(encrypted_data)
+                temp_file.replace(self.auth_file)
+                return True
+            except Exception as e:
+                print(f"保存认证信息失败: {e}")
+                if temp_file.exists():
+                    temp_file.unlink()
+                return False
+        except Exception as e:
+            print(f"准备认证信息失败: {e}")
+            return False
+    def load_auth_info(self):
+        try:
+            if not self.auth_file.exists():
+                return None
+            with open(self.auth_file, 'r', encoding='utf-8') as f:
+                encrypted_data = f.read()
+            decrypted_data = self._decrypt_data(encrypted_data)
+            if not decrypted_data:
+                return None
+            return json.loads(decrypted_data)
+        except Exception as e:
+            print(f"加载认证信息失败: {e}")
+            return None
+    def is_registered(self):
+        try:
+            auth_info = self.load_auth_info()
+            if not auth_info:
+                return False
+            stored_checksum = auth_info.get("checksum")
+            if not stored_checksum:
+                return False
+            calculated_checksum = hashlib.sha256(
+                (auth_info["machine_code"] + auth_info["register_code"]).encode()
+            ).hexdigest()
+            if stored_checksum != calculated_checksum:
+                print("注册数据完整性验证失败")
+                return False
+            return self.verify_register_code(
+                auth_info["machine_code"],
+                auth_info["register_code"]
+            )
+        except Exception as e:
+            print(f"验证注册状态失败: {e}")
+            return False
+    def register(self, register_code):
+        try:
+            machine_code = self.get_machine_code()
+            print(f"当前机器码: {machine_code}")
+            if not self.verify_register_code(machine_code, register_code):
+                print("注册码验证失败")
+                return False
+            if not self.save_auth_info(machine_code, register_code):
+                print("保存授权信息失败")
+                return False
+            print("注册成功")
+            return True
+        except Exception as e:
+            print(f"注册过程失败: {e}")
+            return False
+    def unregister(self):
+        try:
+            if self.auth_file.exists():
+                self.auth_file.unlink()
+            return True
+        except Exception as e:
+            print(f"注销失败: {e}")
+            return False
+
+# 文件: ./src\auth\__init__.py
+
+
+# 文件: ./src\data\data_oop.py
+import os
+from collections import defaultdict
+import pandas as pd
+class MeasurementData:
+    def __init__(self, path):
+        self.original_list = []
+        self.original_data = []
+        self.temp_files = []
+        self.path = path
+        self.grouped_data = defaultdict(list)  # 使用 defaultdict(list) 以便直接添加数据
+        self.process_directory()
+        self.data_transform()
+        self.cleanup_temp_files()
+        self.get_grouped_data()
+    def process_directory(self):
+        for root, dirs, files in os.walk(self.path):
+            for file in files:
+                if file.endswith('.xls'):
+                    file_path = os.path.join(root, file)
+                    data = pd.read_excel(file_path)
+                    temp_file_path = file_path.replace(".xls", "_temp.xlsx")
+                    data.to_excel(temp_file_path, index=False)
+                    self.temp_files.append(temp_file_path)
+        for root, dirs, files in os.walk(self.path):
+            for file in files:
+                if file.endswith('_temp.xlsx'):
+                    file_path = os.path.join(root, file)
+                    last_dir = os.path.basename(os.path.dirname(os.path.dirname(file_path)))
+                    file_name = file[:-10]
+                    data = pd.read_excel(file_path)
+                    name = file_name + '-' + last_dir
+                    selected_rows = data.tail(6).iloc[:, 1:-4]
+                    column_name = selected_rows.columns[0]
+                    selected_rows = selected_rows.dropna(subset=[column_name])
+                    df = pd.DataFrame(selected_rows.values)
+                    df.columns = [''] * len(df.columns)
+                    self.original_list.append((name, df))
+    def cleanup_temp_files(self):
+        for temp_file in self.temp_files:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+    def group_by_type(self, s):
+        if not s:
+            return ""
+        groups = []
+        current_group = s[0]
+        def char_type(c):
+            if c.isdigit():
+                return 'digit'
+            elif c.isalpha():
+                return 'alpha'
+            else:
+                return 'symbol'
+        for i in range(1, len(s)):
+            if char_type(s[i]) == char_type(current_group[-1]):
+                current_group += s[i]
+            else:
+                groups.append(current_group)
+                current_group = s[i]
+        groups.append(current_group)
+        return groups[0] + groups[1] if len(groups) > 1 else groups[0]
+    def data_transform(self):
+        for key, value in self.original_list:
+            station = self.group_by_type(key)
+            for i in range(value.shape[0]):
+                self.original_data.append([
+                    key,  # 文件标识符
+                    station,  # 测站ID
+                    self.group_by_type(value.iloc[i, 0]),  # 目标ID（从第一列提取）
+                    float(value.iloc[i, 4]),  # 归零方向均值（第5列）
+                    float(value.iloc[i, 5]),  # 天顶角均值（第6列）
+                    float(value.iloc[i, 6]),  # 斜距（第7列）
+                ])
+    def get_grouped_data(self):
+        for value in self.original_data:
+            group_key = (value[1], value[2])  # 使用(测站ID, 目标ID)作为分组键
+            self.grouped_data[group_key].append(value)
+if __name__ == '__main__':
+    path = 'E:/个人/PYPROJECT/tl_tools/数据/JS02STEST'
+    example = MeasurementData(path)
+    print(example.original_data)
+
+# 文件: ./src\data\data_service.py
+import openpyxl
+from openpyxl.workbook import Workbook
+from collections import defaultdict
+from src.function.measurement import Measurement
+class DataService:
+    def __init__(self):
+        self.data = []
+        self.grouped_data = defaultdict(list)
+    def import_excel(self, file_path):
+        wb = openpyxl.load_workbook(file_path)
+        ws = wb.active
+        self.data = [row for row in ws.iter_rows(min_row=2, values_only=True)]
+        return self.data
+    def export_excel(self, data, file_path, calculated=False):
+        wb = Workbook()
+        ws = wb.active
+        if calculated:
+            ws.append([
+                "文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距(m)", "仪器高(m)", "目标高(m)",
+                "测站温度(℃)", "目标温度(℃)", "测站气压(hPa)", "目标气压(hPa)", "气象改正(m)", "加乘常数改正(m)",
+                "平距(m)", "高差(m)", "高差中数(m)", "往返不符值(mm)", "限差(mm)"
+            ])
+        else:
+            ws.append([
+                "文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距", "仪器高(m)", "目标高(m)", "测站温度",
+                "目标温度", "测站气压", "目标气压"
+            ])
+        for row in data:
+            clean_row = [cell if cell is not None else '' for cell in row]
+            ws.append(clean_row)
+        for row in ws.iter_rows(min_row=1):
+            for cell in row:
+                cell.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center')
+        column_widths = {'A': 20, 'B': 10, 'C': 10, 'D': 16, 'E': 20, 'F': 20, 'G': 12, 'H': 12, 'I': 12, 'J': 12, 'K': 12, 'L': 12, 'M': 12, 'N': 12, 'O': 12, 'P': 12}
+        for col, width in column_widths.items():
+            ws.column_dimensions[col].width = width
+        wb.save(file_path)
+    def group_data(self, data):
+        grouped_data = defaultdict(list)
+        for value in data:
+            group_key = (value[1], value[2])  # 以测站和目标为分组依据
+            grouped_data[group_key].append(value)
+        return grouped_data
+    def sort_and_calculate(self, grouped_data):
+        paired_data = []  # 存储有对应 (b, a) 键的键对
+        unpaired_data = []  # 存储没有对应 (b, a) 键的键
+        visited = set()  # 标记已处理的键
+        for key in grouped_data.keys():
+            if key not in visited:
+                reverse_key = (key[1], key[0])  # 生成 (b, a) 键
+                if reverse_key in grouped_data:
+                    paired_data.append((key, grouped_data[key]))
+                    paired_data.append((reverse_key, grouped_data[reverse_key]))
+                    visited.add(key)
+                    visited.add(reverse_key)
+                else:
+                    unpaired_data.append((key, grouped_data[key]))
+                    visited.add(key)
+        sorted_data = paired_data + unpaired_data
+        new_grouped_data = {k: v for k, v in sorted_data}
+        for key, data_list in new_grouped_data.items():
+            updated_data = []
+            for item in data_list:
+                results = Measurement.calculate_all(
+                    s=float(item[5]), z=float(item[4]), i=float(item[6]), l=float(item[7]),
+                    t_a=float(item[8]), t_b=float(item[9]), p_a=float(item[10]), p_b=float(item[11])
+                )
+                additional_values = tuple(results.values())  # 取所有计算结果
+                updated_item = item + additional_values  # 拼接到原始数据后
+                updated_data.append(updated_item)
+            new_grouped_data[key] = updated_data
+        return new_grouped_data
+
+# 文件: ./src\data\__init__.py
+
+
+# 文件: ./src\function\logger.py
+import logging
+import os
+import time
+import functools
+import traceback
+from datetime import datetime
+from pathlib import Path
+from typing import Optional, Callable, Any
+import psutil
+import threading
+from queue import Queue
+import json
+class PerformanceMonitor:
+    def __init__(self):
+        self.start_time = None
+        self.end_time = None
+        self.memory_start = None
+        self.memory_end = None
+        self.cpu_start = None
+        self.cpu_end = None
+    def start(self):
+        self.start_time = time.time()
+        self.memory_start = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+        self.cpu_start = psutil.Process().cpu_percent()
+    def stop(self) -> dict:
+        self.end_time = time.time()
+        self.memory_end = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+        self.cpu_end = psutil.Process().cpu_percent()
+        return {
+            'execution_time': self.end_time - self.start_time,
+            'memory_usage': self.memory_end - self.memory_start,
+            'cpu_usage': self.cpu_end - self.cpu_start
+        }
+class LogManager:
+    _instance = None
+    _lock = threading.Lock()
+    def __new__(cls):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+            return cls._instance
+    def __init__(self):
+        if not hasattr(self, 'initialized'):
+            self.initialized = True
+            self.log_dir = Path('logs')
+            self.log_dir.mkdir(exist_ok=True)
+            self.operation_log = self._setup_logger('operation.log', '操作日志')
+            self.error_log = self._setup_logger('error.log', '错误日志')
+            self.performance_log = self._setup_logger('performance.log', '性能日志')
+            self.performance_queue = Queue()
+            self._start_performance_monitor()
+    def _setup_logger(self, filename: str, logger_name: str) -> logging.Logger:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.DEBUG)
+        file_handler = logging.FileHandler(
+            self.log_dir / filename,
+            encoding='utf-8'
+        )
+        file_handler.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        return logger
+    def _start_performance_monitor(self):
+        def monitor_thread():
+            while True:
+                try:
+                    data = self.performance_queue.get()
+                    if data is None:
+                        break
+                    self.performance_log.info(json.dumps(data))
+                except Exception as e:
+                    self.error_log.error(f"性能监控错误: {str(e)}")
+                finally:
+                    self.performance_queue.task_done()
+        self.monitor_thread = threading.Thread(target=monitor_thread, daemon=True)
+        self.monitor_thread.start()
+    def log_operation(self, message: str, level: str = 'INFO'):
+        log_func = getattr(self.operation_log, level.lower())
+        log_func(message)
+    def log_error(self, error: Exception, context: str = ''):
+        error_info = {
+            'error_type': type(error).__name__,
+            'error_message': str(error),
+            'context': context,
+            'traceback': traceback.format_exc()
+        }
+        self.error_log.error(json.dumps(error_info, ensure_ascii=False))
+    def log_performance(self, data: dict):
+        self.performance_queue.put(data)
+    def performance_monitor(self, func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> Any:
+            monitor = PerformanceMonitor()
+            monitor.start()
+            try:
+                result = func(*args, **kwargs)
+                return result
+            finally:
+                performance_data = monitor.stop()
+                performance_data.update({
+                    'function': func.__name__,
+                    'timestamp': datetime.now().isoformat()
+                })
+                self.log_performance(performance_data)
+        return wrapper
+    def cleanup(self):
+        self.performance_queue.put(None)
+        self.monitor_thread.join()
+log_manager = LogManager()
+def log_operation(message: str, level: str = 'INFO'):
+    log_manager.log_operation(message, level)
+def log_error(error: Exception, context: str = ''):
+    log_manager.log_error(error, context)
+def performance_monitor(func: Callable) -> Callable:
+    return log_manager.performance_monitor(func)
+
+# 文件: ./src\function\measurement.py
+import math
+import os
+import json
+class Measurement:
+    @staticmethod
+    def load_parameters():
+        default_params = {
+            "h_a": 0.6,
+            "h_b": 0.6,
+            "k": 0.14,
+            "pc": -0.28,
+            "mc": -2.43,
+            "r": 6371000
+        }
+        config_dir = os.path.join(os.path.expanduser("~"), ".tl_tools")
+        config_file = os.path.join(config_dir, "parameters.json")
+        if not os.path.exists(config_file):
+            return default_params
+        try:
+            with open(config_file, 'r') as f:
+                params = json.load(f)
+            for key in default_params:
+                if key not in params:
+                    params[key] = default_params[key]
+            return params
+        except Exception:
+            return default_params
+    @staticmethod
+    def calculate_all(s, z, i, l, t_a, t_b, p_a, p_b, h_a=None, h_b=None, k=None, pc=None, mc=None, r=None):
+        params = Measurement.load_parameters()
+        h_a = h_a if h_a is not None else params["h_a"]
+        h_b = h_b if h_b is not None else params["h_b"]
+        k = k if k is not None else params["k"]
+        pc = pc if pc is not None else params["pc"]
+        mc = mc if mc is not None else params["mc"]
+        r = r if r is not None else params["r"]
+        p = (p_a + p_b) / 2
+        t = (t_a + t_b) / 2
+        h = (h_a + h_b) / 2
+        x = 7.5 * t / (t + 237.3) + 0.7857
+        a = 1 / 273.15
+        dd = 286.34 - (0.29525 * p / (1 + a * t) - 4.126 * 10 ** (-4) * h / (1 + a * t) * 10 ** x)
+        mcd = s * (1 + dd / 1000000)
+        s_correction = mcd * (1 + mc * 10 ** (-6)) + pc / 1000
+        degrees = int(z)
+        minutes = int((z - degrees) * 100)
+        seconds = (((z - degrees) * 100) - minutes) * 100
+        decimal_degrees = degrees + minutes / 60 + seconds / 3600
+        d = s_correction * math.sin(decimal_degrees * (math.pi / 180))
+        height = (d / math.tan(decimal_degrees * (math.pi / 180)) + i - l +
+                  (1 - k) * (d ** 2) / (2 * r))
+        return {
+            "mcd": round(mcd,5),
+            "s_correction": round(s_correction,5),
+            "d":  round(d,5),
+            "height": round(height,5)
+        }
+
+# 文件: ./src\function\__init__.py
+
+
+# 文件: ./src\widgets\draggable_table_widgets.py
+import sys
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QBrush, QColor, QPalette
+from PyQt6.QtWidgets import (QTableWidget, QTableWidgetItem, QApplication,
+                             QAbstractItemView, QHeaderView, QWidget,
+                             QPushButton, QLabel, QHBoxLayout)
+HIGHLIGHT_COLOR = QColor(254, 163, 86)
+DEFAULT_COLOR = QColor(255, 255, 255)
+FILE_COLUMN_INDEX = 1
+TARGET_COLUMN_INDEX = 2
+class DraggableTableWidget(QTableWidget):
+    def __init__(self, grouped_data, main_window, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.data_keys = ["上一个", "文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距(m)", "仪器高(m)", "目标高(m)",
+                          "测站温度(℃)", "目标温度(℃)", "测站气压(hPa)", "目标气压(hPa)", "气象改正(m)", "加乘常数改正(m)", "平距(m)", "高差(m)","高差中数(m)","往返不符值(mm)","限差(mm)","下一个"]
+        self.drag_keys = ["文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距(m)", "仪器高(m)", "目标高(m)",
+                          "测站温度(℃)", "目标温度(℃)", "测站气压(hPa)", "目标气压(hPa)", "气象改正(m)", "加乘常数改正(m)", "平距(m)", "高差(m)","高差中数(m)","往返不符值(mm)","限差(mm)"]
+        self.setHorizontalHeaderLabels(self.data_keys)  # 设置表头
+        self.grouped_data = grouped_data
+        self.main_window = main_window
+        self.current_indices = {key: 0 for key in self.grouped_data}
+        self.cur_key = None  # 当前拖拽的键
+        self.drag_row = -1  # 拖拽行的标识
+        self.drag_widget = None  # 拖拽的窗口组件
+        self.init_drag_widget()  # 初始化拖拽窗口
+        self.set_data()  # 初始化表格数据
+    def init_drag_widget(self):
+        if self.drag_widget:
+            self.drag_widget.deleteLater()  # 清除旧的拖拽组件
+        self.drag_widget = QWidget(self)  # 新建拖拽组件
+        self.drag_widget.setAutoFillBackground(True)
+        self.drag_widget.setPalette(self._get_drag_widget_palette())  # 设置背景色
+        self.drag_widget.resize(self.width(), 30)  # 设置拖拽组件尺寸
+        self.drag_widget.hide()  # 初始化时隐藏组件
+    def _get_drag_widget_palette(self):
+        p = QPalette()
+        p.setColor(QPalette.ColorRole.Window, QColor(0, 200, 100))
+        return p
+    def set_drag_data_on_widget(self, row_data):
+        if len(row_data) < len(self.drag_keys):
+            row_data = list(row_data) + [''] * (len(self.drag_keys) - len(row_data))
+        if self.drag_widget.layout() is None:
+            drag_layout = QHBoxLayout(self.drag_widget)
+            drag_layout.setContentsMargins(10, 0, 0, 0)
+            self.labels = []
+            for col in range(len(self.drag_keys)):
+                text_label = QLabel(self.drag_widget)
+                self.labels.append(text_label)
+                text_label.setFixedWidth(self.columnWidth(col))
+                drag_layout.addWidget(text_label)
+            drag_layout.addStretch()
+        for col, key in enumerate(self.drag_keys):
+            if col < len(row_data):
+                print(row_data[col])
+                self.labels[col].setText(str(row_data[col]))
+            else:
+                print(f"索引 {col} 超出范围，最大索引为 {len(row_data) - 1}")
+    def mouseMoveEvent(self, event) -> None:
+        if self.drag_row != -1:
+            self.drag_widget.move(event.pos())  # 移动拖拽窗口
+            self.drag_widget.show()  # 显示拖拽窗口
+            row = self.indexAt(event.pos()).row()  # 获取鼠标位置的行
+            self._highlight_row(row)  # 高亮当前行
+    def _highlight_row(self, row):
+        self.set_row_bg_color(row, HIGHLIGHT_COLOR)  # 高亮当前行
+        self.set_row_bg_color(row + 1, DEFAULT_COLOR)  # 恢复下一行
+        self.set_row_bg_color(row - 1, DEFAULT_COLOR)  # 恢复上一行
+    def set_row_bg_color(self, row, color):
+        if row < 0:
+            return
+        for col in range(self.columnCount()):
+            item = self.item(row, col)
+            if item:
+                item.setBackground(QBrush(color))
+    def mousePressEvent(self, event) -> None:
+        row, col = self.get_row_col_from_event(event)
+        if col == FILE_COLUMN_INDEX:
+            cur_item = self.item(row, TARGET_COLUMN_INDEX)
+            if cur_item:
+                self.drag_row = row
+                self.cur_key = (cur_item.data(Qt.ItemDataRole.UserRole)[1], cur_item.data(Qt.ItemDataRole.UserRole)[2])
+                self.set_drag_data_on_widget(self.grouped_data[self.cur_key][self.current_indices[self.cur_key]])
+        super().mousePressEvent(event)
+    def get_row_col_from_event(self, event):
+        return self.indexAt(event.pos()).row(), self.indexAt(event.pos()).column()
+    def mouseReleaseEvent(self, event) -> None:
+        row, col = self.get_row_col_from_event(event)
+        self._clear_row_highlight(row)  # 清除高亮
+        cur_item = self.item(row, TARGET_COLUMN_INDEX)
+        print(cur_item)
+        if cur_item and self.drag_row != -1:
+            self.move_row(self.drag_row, row)  # 移动行数据
+            self.update_table_row(row, self.cur_key)  # 更新表格数据
+            if len(self.grouped_data[self.cur_key]) > 1:
+                self._add_navigation_buttons(row, self.cur_key)
+            self.selectRow(row)
+            self.init_drag_widget()  # 重置拖拽组件
+            self.drag_row = -1
+        super().mouseReleaseEvent(event)
+    def move_row(self, from_row, to_row):
+        if from_row == to_row:
+            return
+        self.removeRow(from_row)
+        self.insertRow(to_row)
+    def _clear_row_highlight(self, row):
+        self.set_row_bg_color(row, DEFAULT_COLOR)
+    def _add_navigation_buttons(self, row, key):
+        last_column_index = self.columnCount()
+        prev_button = QPushButton('<<')
+        prev_button.clicked.connect(lambda _, k=key: self.navigate_data(k, self.currentRow(), 'previous'))
+        self.setCellWidget(row, 0, prev_button)
+        next_button = QPushButton('>>')
+        next_button.clicked.connect(lambda _, k=key: self.navigate_data(k, self.currentRow(), 'next'))
+        self.setCellWidget(row, last_column_index-1, next_button)
+    def set_data(self):
+        self.setColumnCount(len(self.data_keys))
+        self.setHorizontalHeaderLabels(self.data_keys)
+        self.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        for row, key in enumerate(self.grouped_data.keys()):
+            self.insertRow(row)
+            self.update_table_row(row, key)
+            if len(self.grouped_data[key]) > 1:
+                self._add_navigation_buttons(row, key)
+    def navigate_data(self, key, row, direction):
+        current_index = self.current_indices[key]
+        if direction == 'previous':
+            self.current_indices[key] = (current_index - 1) % len(self.grouped_data[key])
+        else:
+            self.current_indices[key] = (current_index + 1) % len(self.grouped_data[key])
+        self.update_table_row(row, key)
+        self.main_window.calculate_draggable_table_widget()
+    def update_table_row(self, row, key):
+        current_index = self.current_indices[key]
+        current_data = self.grouped_data[key][current_index]
+        for col, value in enumerate(current_data):
+            item = self.item(row, col + 1)
+            if not item or item.text() != str(value):  # 只有在数据不同的时候才更新
+                item = QTableWidgetItem(str(value))
+                if col == FILE_COLUMN_INDEX:
+                    item.setData(Qt.ItemDataRole.UserRole, current_data)
+                self.setItem(row, col + 1, item)
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    data = {('JS02', 'KZ01'): [('JS02-0519', 'JS02', 'KZ01', '0.0', '84.39384', '454.43776875', 0.237, 1.318, 19.6, 19.6, 775, 775, 454.4708728301876, 454.46948846596666, 452.4975687624054, 41.223080948425434), ('JS02-0520', 'JS02', 'KZ01', '0.0', '84.37235', '454.4947916666667', 0.238, 1.619, 23, 23, 780, 780, 454.52839559896404, 454.52701109496275, 452.52708310991244, 41.22440344908071), ('JS02SS2-0520', 'JS02', 'KZ01', '0.0', '89.46164', '817.4432666666668', 0.238, 1.619, 23, 23, 780, 780, 817.5037058811389, 817.5014393471337, 817.4949224575488, 1.9283193047252942)], ('KZ01', 'JS02'): [('KZ01S-0519', 'KZ01', 'JS02', '359.58548', '95.22223', '454.47635625', 1.592, 0.249, 19.6, 19.6, 775, 775, 454.5094631411417, 454.50807868314627, 452.5111649620395, -41.201835312979846)], ('JS03', 'KZ03'): [('JS03-0519', 'JS03', 'KZ03', '0.0', '94.02205', '542.6668875', 0.234, 1.304, 22, 22, 775, 775, 542.707361268466, 542.7057624895781, 541.3578459741698, -39.27622200967495), ('JS03S-0520', 'JS03', 'KZ03', '0.0', '94.01076', '542.6499375', 0.234, 1.497, 26.6, 26.6, 784, 784, 542.6908604548578, 542.6892617160669, 541.3548621468085, -39.276731757767294)], ('KZ03', 'JS03'): [('KZ03SS-0519', 'KZ03', 'JS03', '0.0', '85.58538', '542.651375', 1.496, 0.241, 21.4, 21.4, 775, 775, 542.6916134203238, 542.6900146797033, 541.3558713952328, 39.3046700851178), ('KZ03SS-0519', 'KZ03', 'JS03', '269.5957', '85.58554', '542.6513500000001', 1.496, 0.241, 21.4, 21.4, 775, 775, 542.6915884184701, 542.6899896779103, 541.3561414371793, 39.300469044134516)], ('KZ01', 'KZ02'): [('KZ01-0519', 'KZ01', 'KZ02', '0.0', '89.59415', '1157.61235625', 1.592, 1.604, 25, 25, 775, 775, 1157.7011624553702, 1157.6980692415455, 1157.6980645850572, 0.18229348831654554), ('KZ01-0520', 'KZ01', 'KZ02', '0.0', '89.59451', '1157.6189125', 1.618, 1.604, 26.6, 26.6, 784, 784, 1157.7062122179675, 1157.7031189918719, 1157.7031159712978, 0.18808899951186236), ('KZ01S-0520', 'KZ01', 'KZ02', '0.0', '89.5929', '1157.616983333333', 1.523, 1.604, 18.2, 18.2, 782, 782, 1157.6978802277338, 1157.6947870218848, 1157.6947739470202, 0.1834509630889752)], ('KZ02', 'KZ01'): [('KZ02S-0519', 'KZ02', 'KZ01', '0.0', '90.0124', '1157.61195625', 1.579, 1.318, 21, 21, 775, 775, 1157.6974607407117, 1157.694367535882, 1157.694271535663, -0.12000514289638556), ('KZ02-0520', 'KZ02', 'KZ01', '0.0', '90.00212', '1157.61936875', 1.521, 1.604, 14.6, 14.6, 781, 781, 1157.6974541751536, 1157.6943609703399, 1157.694354855496, -0.11153005136692437), ('KZ02S-0520', 'KZ02', 'KZ01', '0.0', '90.00211', '1157.61865', 1.521, 1.604, 14.6, 14.6, 781, 781, 1157.6967353766713, 1157.6936421736043, 1157.6936361163152, -0.11096882409492521)], ('KZ01', 'KZ03'): [('KZ01S-0519', 'KZ01', 'KZ03', '0.0', '94.2523', '608.4656625', 1.592, 1.304, 19.6, 19.6, 775, 775, 608.5099869322281, 608.50822825296, 606.6959691235021, -46.61545236705874)], ('KZ03', 'KZ01'): [('KZ03S-0519', 'KZ03', 'KZ01', '0.0', '85.37179', '608.42435', 1.496, 1.318, 19.6, 19.6, 775, 775, 608.468671422768, 608.4669128438965, 606.691196826227, 46.65470709476497), ('KZ03S-0520', 'KZ03', 'KZ01', '0.0', '85.35392', '608.4769291666667', 1.488, 1.619, 24, 24, 780, 780, 608.52235324099, 608.5205945316717, 606.7224226951757, 46.64013660108855)], ('KZ02', 'KZ03'): [('KZ02-0519', 'KZ02', 'KZ03', '0.0', '94.32273', '594.46360625', 1.579, 1.304, 21, 21, 775, 775, 594.5075150120203, 594.5057903587589, 592.6396661081056, -46.76891564764481), ('KZ02S1-0520', 'KZ02', 'KZ03', '0.0', '94.30519', '594.438', 1.502, 1.497, 26.6, 26.6, 784, 784, 594.4828284570931, 594.48110386382, 592.6367621639982, -46.76286467653299)], ('KZ03', 'KZ02'): [('KZ03-0519', 'KZ03', 'KZ02', '0.0', '85.2836', '594.43970625', 1.496, 1.604, 21.4, 21.4, 775, 775, 594.4837848534261, 594.482060257829, 592.6304264555797, 46.79957802741251), ('KZ03-0520', 'KZ03', 'KZ02', '0.0', '85.28345', '594.4427708333334', 1.488, 1.604, 21.4, 21.4, 784, 784, 594.4853848427134, 594.4836602432283, 592.6316804917643, 46.79601405114258)], ('JS02', 'KZ02'): [('JS02S-0520', 'JS02', 'KZ02', '0.0', '86.39069', '731.0709', 0.238, 1.604, 24, 24, 780, 780, 731.1254759704361, 731.1234193355295, 729.8755061635425, 41.3688987490301), ('JS02SS-0520', 'JS02', 'KZ02', '0.0', '86.3906', '731.0705791666668', 0.238, 1.604, 24, 24, 780, 780, 731.125155113152, 731.1230984790251, 729.8749995385344, 41.372064641383524)], ('KZ02', 'JS02'): [('KZ02SS-0520', 'KZ02', 'JS02', '0.0', '93.20394', '731.0725708333333', 1.502, 0.243, 25, 25, 784, 784, 731.1268752976346, 731.1248186593276, 729.8797375357991, -41.35559206385429), ('KZ02SS1-0520', 'KZ02', 'JS02', '0.0', '93.20349', '731.0706291666667', 1.502, 0.243, 24, 24, 780, 780, 731.1252051168844, 731.123148482636, 729.8790005181388, -41.339571226362644)], ('JS03', 'JS02'): [('JS03-0520', 'JS03', 'JS02', '0.0', '92.52502', '676.3338916666667', 0.234, 0.126, 23, 23, 780, 780, 676.3838976925281, 676.3819740796567, 675.5273117833381, -33.852756512674354)]}
+    table_widget = DraggableTableWidget(data)
+    table_widget.show()
+    sys.exit(app.exec_())
+
+# 文件: ./src\widgets\import_data_widgets.py
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog
+from src.data.data_oop import MeasurementData
+class ImportDataWindow(QWidget):
+    def __init__(self, main_window):
+        super().__init__()
+        self.main_window = main_window  # 传入主窗口实例
+        self.import_button = None
+        self.label = None
+        self.initUI()
+    def initUI(self):
+        self.setWindowTitle('导入数据')
+        self.setGeometry(400, 400, 300, 200)
+        layout = QVBoxLayout()
+        self.label = QLabel('请选择数据文件夹')
+        layout.addWidget(self.label)
+        self.import_button = QPushButton('导入数据')
+        self.import_button.clicked.connect(self.import_data)
+        layout.addWidget(self.import_button)
+        self.setLayout(layout)
+    def import_data(self):
+        path = QFileDialog.getExistingDirectory(self, '选择文件夹')
+        if path:
+            self.main_window.showMaximized()
+            self.main_window.status_bar.showMessage(f"已加载数据: {path}")
+            example = MeasurementData(path)
+            original_data = example.original_data
+            self.main_window.set_table_widget(original_data)
+            self.close()  # 关闭导入窗口
+
+# 文件: ./src\widgets\main_window.py
+import math
+import sys
+from collections import defaultdict
+import openpyxl
+from PyQt6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QVBoxLayout,
+    QWidget,
+    QStatusBar,
+    QMessageBox,
+    QFileDialog,
+    QTableWidgetItem,
+    QTableWidget,
+    QHeaderView,
+)
+from PyQt6.QtGui import QPalette, QColor
+from src.widgets.draggable_table_widgets import DraggableTableWidget
+from src.widgets.import_data_widgets import ImportDataWindow
+from src.widgets.menu_component import MenuComponent
+from src.widgets.parameter_window import ParameterWindow
+from src.data.data_service import DataService
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.matched = None # 匹配状态
+        self.calculated = None  # 计算状态
+        self.setWindowTitle("三角高程计算工具")
+        self.init_ui()
+        self.setup_styles()
+        self.resize(800, 600)
+        screen = QApplication.primaryScreen().geometry()
+        window_size = self.geometry()
+        x = (screen.width() - window_size.width()) // 2
+        y = (screen.height() - window_size.height()) // 2
+        self.move(x, y)
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.menu_component = MenuComponent(self)
+        self.setMenuBar(self.menu_component)  # 使用 setMenuBar 设置菜单
+        self.initFileMenu()
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.layout = QVBoxLayout(self.central_widget)
+        self.grouped_data = defaultdict(list)
+        self.import_data_window = ImportDataWindow(self)
+        self.table_widget = QTableWidget()
+        self.data_keys = ["文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距", "仪器高(m)", "目标高(m)",
+                          "测站温度", "目标温度", "测站气压", "目标气压"]
+        self.table_widget.setColumnCount(len(self.data_keys))
+        self.table_widget.setHorizontalHeaderLabels(self.data_keys)
+        self.layout.addWidget(self.table_widget)
+        self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.data = []
+        self.data_service = DataService()
+    def setup_styles(self):
+            self.setAutoFillBackground(True)
+            palette = self.palette()
+            palette.setColor(QPalette.ColorRole.Window, QColor(240, 240, 240))  # 浅灰色背景
+            palette.setColor(QPalette.ColorRole.WindowText, QColor(0, 0, 0))    # 黑色文字
+            palette.setColor(QPalette.ColorRole.Button, QColor(225, 225, 225))  # 按钮颜色
+            palette.setColor(QPalette.ColorRole.ButtonText, QColor(0, 0, 0))    # 按钮文字颜色
+            self.setPalette(palette)
+    def init_ui(self):
+        self.setStyleSheet()
+    def initFileMenu(self):
+        file_menu = self.menu_component.add_menu('文件')
+        self.menu_component.add_action(file_menu, '打开', '打开文件夹', self.openFile)
+        self.menu_component.add_action(file_menu, '退出', '退出程序', self.close)
+        import_menu = self.menu_component.add_menu('导入')
+        self.menu_component.add_action(import_menu, '导入外业手簿', '导入', self.importMatchingTable)
+        export_menu = self.menu_component.add_menu('导出')
+        self.menu_component.add_action(export_menu, '导出外业测量数据', '导出外业测量数据', self.exportOutsideTable)
+        self.menu_component.add_action(export_menu, '导出三角高程测量计算总表', '导出三角高程测量计算总表',
+                                       self.exportOutsideTable)
+        measure_menu = self.menu_component.add_menu('处理')
+        self.menu_component.add_action(measure_menu, '匹配外业手簿', '匹配', self.set_draggable_table_widget)
+        self.menu_component.add_action(measure_menu, '计算对象观测中误差', '对象观测计算', self.calculate_draggable_table_widget)
+        measure_menu = self.menu_component.add_menu('设置')
+        self.menu_component.add_action(measure_menu, '参数设置', '参数设置', self.set_parameter)
+        help_menu = self.menu_component.add_menu('帮助')
+        self.menu_component.add_action(help_menu, '关于', '关于程序', self.showAbout)
+    def openFile(self):
+        try:
+            self.matched = False
+            self.close()
+            self.import_data_window.show()
+            self.import_data_window.label.setText('请选择数据文件夹')
+        except AttributeError:
+            QMessageBox.warning(self, '错误', '没有可导入的数据')
+    def importMatchingTable(self):
+        try:
+            file_dialog_result = QFileDialog.getOpenFileName(self, '选择文件', '', 'Excel Files (*.xlsx)')
+            file_path = file_dialog_result[0]
+            if file_path:
+                data = self.data_service.import_excel(file_path)
+                self.data = data
+                self.set_table_widget(data)
+            else:
+                QMessageBox.warning(self, '错误', '没有选择文件')
+        except AttributeError:
+            QMessageBox.warning(self, '错误', '没有可导入的数据')
+    def set_table_widget(self, data):
+        self.table_widget.clear()
+        self.table_widget.setRowCount(len(data))
+        self.table_widget.setColumnCount(len(self.data_keys))
+        self.table_widget.setHorizontalHeaderLabels(self.data_keys)
+        for row_idx, row_data in enumerate(data):
+            for col_idx, cell_data in enumerate(row_data):
+                self.table_widget.setItem(row_idx, col_idx, QTableWidgetItem(str(cell_data)))
+    def exportOutsideTable(self):
+        if self.table_widget:
+            try:
+                data = self.get_all_table_data()
+                file_dialog_result = QFileDialog.getSaveFileName(self, '选择文件夹和输入文件名', '', 'Excel Files (*.xlsx)')
+                file_path = file_dialog_result[0]
+                if file_path:
+                    self.data_service.export_excel(data, file_path, calculated=self.calculated)
+                    QMessageBox.warning(self, '完成', f'文件已保存到: {file_path}')
+            except Exception as e:
+                msg_box = QMessageBox()
+                msg_box.setIcon(QMessageBox.Icon.Warning)
+                msg_box.setWindowTitle("警告")
+                msg_box.setText(f"程序可能没有足够的权限写入文件。\n{str(e)}\n\n请以管理员身份运行程序。")
+                msg_box.exec()
+        else:
+            QMessageBox.warning(self, '错误', '没有可导出的数据')
+    def get_all_table_data(self):
+        data = []
+        for row in range(self.table_widget.rowCount()):
+            if self.matched:
+                row_data = [self.table_widget.item(row, col).text() if self.table_widget.item(row, col) else None for col in range(self.table_widget.columnCount())[1:-1]]
+            else:
+                row_data = [self.table_widget.item(row, col).text() if self.table_widget.item(row, col) else None for col in range(self.table_widget.columnCount())]
+            data.append(row_data)
+        return data
+    def set_draggable_table_widget(self):
+        if self.matched:
+            QMessageBox.warning(self, '错误', '已匹配，无法重复匹配')
+        else:
+            self.grouped_data = self.data_service.group_data(self.data)
+            self.matched = True
+            self.grouped_data = self.data_service.sort_and_calculate(self.grouped_data)
+            self.table_widget.clear()
+            self.table_widget = DraggableTableWidget(self.grouped_data,self)
+            central_widget = QWidget()
+            layout = QVBoxLayout()
+            layout.addWidget(self.table_widget)
+            central_widget.setLayout(layout)
+            self.setCentralWidget(central_widget)
+            self.calculated = True
+            self.calculate_draggable_table_widget()
+    def calculate_draggable_table_widget(self):
+        if self.matched:
+            for i in range(0, self.table_widget.rowCount(), 2):  # 每两行遍历
+                if i + 1 >= self.table_widget.rowCount():  # 确保有下一行
+                    continue
+                def get_row_value(row, col):
+                    item = self.table_widget.item(row, col)
+                    return float(item.text()) if item else 0
+                first_row_value = get_row_value(i, 16)
+                second_row_value = get_row_value(i + 1, 16)
+                first_row_value_1 = get_row_value(i, 6)
+                second_row_value_1 = get_row_value(i + 1, 6)
+                average_d =round( 0.5 * (first_row_value - second_row_value),5)
+                sum_value = round((first_row_value + second_row_value) * 1000,5)
+                tolerance = round(40 * math.sqrt(0.5 * (abs(first_row_value_1) + abs(second_row_value_1)) / 1000),5)
+                self.table_widget.setItem(i, self.table_widget.columnCount() - 4, QTableWidgetItem(str(average_d)))
+                self.table_widget.setItem(i, self.table_widget.columnCount() - 3, QTableWidgetItem(str(sum_value)))
+                self.table_widget.setItem(i, self.table_widget.columnCount() - 2, QTableWidgetItem(str(tolerance)))
+        else:
+            QMessageBox.warning(self, '错误', "没有可计算的数据")
+    def showAbout(self):
+        QMessageBox.about(self, "关于", "这是一个程序")
+    def set_parameter(self):
+        parameter_window = ParameterWindow(self)
+        parameter_window.exec()
+if __name__ == '__main__':
+    try:
+        app = QApplication(sys.argv)
+        main_window = MainWindow()
+        sys.exit(app.exec_())
+    except Exception as e:
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Icon.Critical)
+        msg_box.setWindowTitle("错误")
+        msg_box.setText(f"程序启动失败：{str(e)}")
+        msg_box.exec()
+
+# 文件: ./src\widgets\matching_measure_widgets.py
+import openpyxl
+from PyQt6.QtWidgets import QMainWindow, QMessageBox, QFileDialog
+from openpyxl import Workbook
+from openpyxl.reader.excel import load_workbook
+from src.widgets.menu_component import MenuComponent
+class MatchingMeasureWidget(QMainWindow):
+    def __init__(self, main_window):
+        super().__init__()
+        self.data = None
+        self.main_window = main_window  # 传入主窗口实例
+        self.import_button = None
+        self.label = None
+        self.menu_component = MenuComponent(self)
+        self.setMenuBar(self.menu_component)
+        self.import_data = None
+        self.initUI()
+    def initUI(self):
+        self.setWindowTitle('导入外业手簿')
+        self.setGeometry(400, 400, 300, 200)
+        data_menu = self.menu_component.add_menu('数据')
+        self.menu_component.add_action(data_menu, '导出匹配表', '导出匹配表', self.exportData)
+        self.menu_component.add_action(data_menu, '导入外业手簿', '导入外业手簿', self.importData)
+    def exportData(self):
+        try:
+            data = self.main_window.drag_table_widget.all_table_data
+            wb = Workbook()
+            ws = wb.active
+            ws.append(
+                ["文件名", "测站", "目标", "归零方向均值", "天顶角均值", "斜距" ,"仪器高(m)", "目标高(m)", "测站温度", "目标温度", "测站气压", "目标气压"])
+            for row in data:
+                clean_row = [cell if cell is not None else '' for cell in row]
+                ws.append(clean_row)
+            for row in ws.iter_rows(min_row=1):
+                for cell in row:
+                    cell.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center')
+            ws.column_dimensions['A'].width = 20
+            ws.column_dimensions['B'].width = 10
+            ws.column_dimensions['C'].width = 10
+            ws.column_dimensions['D'].width = 16
+            ws.column_dimensions['E'].width = 20
+            ws.column_dimensions['F'].width = 10
+            ws.column_dimensions['G'].width = 10
+            ws.column_dimensions['H'].width = 10
+            ws.column_dimensions['I'].width = 10
+            wb.save('output.xlsx')
+            QMessageBox.warning(self, '完成', '数据已保存到 Excel 文件')
+        except Exception as e:
+            QMessageBox.warning(self, '错误', e)
+    def importData(self):
+        print('导入外业手簿')
+        file_dialog_result = QFileDialog.getOpenFileUrl(self, '选择文件')
+        path = file_dialog_result[0]
+        if path:
+            self.data = self.get_excel_data(path)
+            print(self.data)
+    def get_excel_data(self,file_path):
+        wb = load_workbook(file_path)
+        ws = wb.active  # Get the active worksheet
+        data = []
+        for row in ws.iter_rows(values_only=True):
+            data.append(list(row))  # Convert row to a list
+        return data
+
+# 文件: ./src\widgets\menu_component.py
+from PyQt6.QtWidgets import QMenuBar
+from PyQt6.QtGui import QAction
+class MenuComponent(QMenuBar):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+    def add_menu(self, title):
+        menu = self.addMenu(title)
+        return menu
+    def add_action(self, menu, action_name, status_tip, trigger_function):
+        action = QAction(action_name, self)
+        action.setStatusTip(status_tip)
+        action.triggered.connect(trigger_function)
+        menu.addAction(action)
+        return action
+
+# 文件: ./src\widgets\parameter_window.py
+import os
+import json
+from PyQt6.QtWidgets import (
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QFormLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QGroupBox,
+    QMessageBox
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QDoubleValidator
+class ParameterWindow(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("参数设置")
+        self.resize(400, 350)
+        self.default_params = {
+            "h_a": 0.6,
+            "h_b": 0.6,
+            "k": 0.14,
+            "pc": -0.28,
+            "mc": -2.43,
+            "r": 6371000
+        }
+        self.params = self.load_parameters()
+        self.init_ui()
+        self.populate_fields()
+        self.center_window()
+    def center_window(self):
+        frame_geometry = self.frameGeometry()
+        screen_center = self.screen().availableGeometry().center()
+        frame_geometry.moveCenter(screen_center)
+        self.move(frame_geometry.topLeft())
+    def init_ui(self):
+        main_layout = QVBoxLayout()
+        params_group = QGroupBox("测量参数")
+        form_layout = QFormLayout()
+        self.h_a_edit = QLineEdit()
+        self.h_a_edit.setValidator(QDoubleValidator())
+        form_layout.addRow("h_a (相对空气湿度A):", self.h_a_edit)
+        self.h_b_edit = QLineEdit()
+        self.h_b_edit.setValidator(QDoubleValidator())
+        form_layout.addRow("h_b (相对空气湿度B):", self.h_b_edit)
+        self.k_edit = QLineEdit()
+        self.k_edit.setValidator(QDoubleValidator())
+        form_layout.addRow("k (大气折光系数):", self.k_edit)
+        self.pc_edit = QLineEdit()
+        self.pc_edit.setValidator(QDoubleValidator())
+        form_layout.addRow("pc (加法常数改正):", self.pc_edit)
+        self.mc_edit = QLineEdit()
+        self.mc_edit.setValidator(QDoubleValidator())
+        form_layout.addRow("mc (乘法常数改正):", self.mc_edit)
+        self.r_edit = QLineEdit()
+        self.r_edit.setValidator(QDoubleValidator())
+        form_layout.addRow("r (地球半径/m):", self.r_edit)
+        params_group.setLayout(form_layout)
+        main_layout.addWidget(params_group)
+        description = QLabel("这些参数用于三角高程测量计算。\n修改后点击保存，重启程序后生效。")
+        description.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(description)
+        button_layout = QHBoxLayout()
+        save_button = QPushButton("保存")
+        save_button.clicked.connect(self.save_parameters)
+        button_layout.addWidget(save_button)
+        reset_button = QPushButton("重置为默认")
+        reset_button.clicked.connect(self.reset_to_default)
+        button_layout.addWidget(reset_button)
+        cancel_button = QPushButton("取消")
+        cancel_button.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_button)
+        main_layout.addLayout(button_layout)
+        self.setLayout(main_layout)
+    def populate_fields(self):
+        self.h_a_edit.setText(str(self.params["h_a"]))
+        self.h_b_edit.setText(str(self.params["h_b"]))
+        self.k_edit.setText(str(self.params["k"]))
+        self.pc_edit.setText(str(self.params["pc"]))
+        self.mc_edit.setText(str(self.params["mc"]))
+        self.r_edit.setText(str(self.params["r"]))
+    def reset_to_default(self):
+        self.params = self.default_params.copy()
+        self.populate_fields()
+        QMessageBox.information(self, "重置成功", "已重置为默认参数，点击保存后生效。")
+    def load_parameters(self):
+        config_dir = os.path.join(os.path.expanduser("~"), ".tl_tools")
+        config_file = os.path.join(config_dir, "parameters.json")
+        if not os.path.exists(config_file):
+            return self.default_params.copy()
+        try:
+            with open(config_file, 'r') as f:
+                params = json.load(f)
+            for key in self.default_params:
+                if key not in params:
+                    params[key] = self.default_params[key]
+            return params
+        except Exception as e:
+            QMessageBox.warning(self, "加载失败", f"无法加载参数设置: {str(e)}\n将使用默认参数。")
+            return self.default_params.copy()
+    def save_parameters(self):
+        try:
+            params = {
+                "h_a": float(self.h_a_edit.text()),
+                "h_b": float(self.h_b_edit.text()),
+                "k": float(self.k_edit.text()),
+                "pc": float(self.pc_edit.text()),
+                "mc": float(self.mc_edit.text()),
+                "r": float(self.r_edit.text())
+            }
+            config_dir = os.path.join(os.path.expanduser("~"), ".tl_tools")
+            os.makedirs(config_dir, exist_ok=True)
+            config_file = os.path.join(config_dir, "parameters.json")
+            with open(config_file, 'w') as f:
+                json.dump(params, f, indent=4)
+            QMessageBox.information(self, "保存成功", "参数设置已保存，重启程序后生效。")
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "保存失败", f"无法保存参数设置: {str(e)}")
+
+# 文件: ./src\widgets\register_dialog.py
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
+                            QLabel, QLineEdit, QPushButton, QMessageBox, QFrame)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
+from src.auth.auth import AuthManager
+class RegisterDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.auth_manager = AuthManager()
+        self.machine_code = self.auth_manager.get_machine_code()
+        self.init_ui()
+    def init_ui(self):
+        self.setWindowTitle("软件注册")
+        self.setFixedWidth(500)
+        layout = QVBoxLayout()
+        layout.setSpacing(15)
+        machine_code_layout = QVBoxLayout()
+        machine_code_label = QLabel("您的机器码：")
+        machine_code_label.setFont(QFont('Microsoft YaHei', 10))
+        self.machine_code_edit = QLineEdit()
+        self.machine_code_edit.setReadOnly(True)
+        self.machine_code_edit.setText(self.machine_code)
+        self.machine_code_edit.setFont(QFont('Consolas', 11))
+        machine_code_layout.addWidget(machine_code_label)
+        machine_code_layout.addWidget(self.machine_code_edit)
+        layout.addLayout(machine_code_layout)
+        register_code_layout = QVBoxLayout()
+        register_code_label = QLabel("请输入注册码：")
+        register_code_label.setFont(QFont('Microsoft YaHei', 10))
+        self.register_code_edit = QLineEdit()
+        self.register_code_edit.setFont(QFont('Consolas', 11))
+        register_code_layout.addWidget(register_code_label)
+        register_code_layout.addWidget(self.register_code_edit)
+        layout.addLayout(register_code_layout)
+        button_layout = QHBoxLayout()
+        self.register_btn = QPushButton("注册")
+        self.register_btn.setFont(QFont('Microsoft YaHei', 10))
+        self.register_btn.setStyleSheet()
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setFont(QFont('Microsoft YaHei', 10))
+        self.cancel_btn.setStyleSheet()
+        button_layout.addWidget(self.register_btn)
+        button_layout.addWidget(self.cancel_btn)
+        layout.addLayout(button_layout)
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setStyleSheet("background-color: #cccccc; margin-top: 10px;")
+        layout.addWidget(separator)
+        info_layout = QVBoxLayout()
+        get_code_label = QLabel("获取注册码请联系:")
+        get_code_label.setFont(QFont('Microsoft YaHei', 10, QFont.Weight.Bold))
+        info_layout.addWidget(get_code_label)
+        contact_label = QLabel("微信/电话: 18935590710")
+        contact_label.setFont(QFont('Microsoft YaHei', 9))
+        contact_label.setStyleSheet("color: #555;")
+        info_layout.addWidget(contact_label)
+        email_label = QLabel("邮箱: 18935590710@163.com")
+        email_label.setFont(QFont('Microsoft YaHei', 9))
+        email_label.setStyleSheet("color: #555;")
+        info_layout.addWidget(email_label)
+        note_label = QLabel("注: 请提供您的机器码，我们将为您生成专属注册码")
+        note_label.setFont(QFont('Microsoft YaHei', 8, QFont.Weight.Light))
+        note_label.setStyleSheet("color: #777; font-style: italic; margin-top: 5px;")
+        info_layout.addWidget(note_label)
+        layout.addLayout(info_layout)
+        self.debug_info = QLabel()
+        self.debug_info.setWordWrap(True)
+        self.debug_info.setStyleSheet("color: #666; font-size: 8pt;")
+        layout.addWidget(self.debug_info)
+        self.register_btn.clicked.connect(self.register)
+        self.cancel_btn.clicked.connect(self.reject)
+        self.setLayout(layout)
+    def register(self):
+        register_code = self.register_code_edit.text().strip()
+        if not register_code:
+            QMessageBox.warning(self, "警告", "请输入注册码！")
+            return
+        print(f"\n开始注册验证:")
+        print(f"机器码: {self.machine_code}")
+        print(f"注册码: {register_code}")
+        try:
+            parts = register_code.split('-')
+            if len(parts) != 6:
+                print(f"注册码格式错误: 期望6个部分，实际{len(parts)}个部分")
+            else:
+                prefix, code_part1, signature, expire_timestamp, code_part2, encrypted_part = parts
+                print(f"注册码解析结果:")
+                print(f"前缀: {prefix}")
+                print(f"代码部分1: {code_part1}")
+                print(f"签名: {signature}")
+                print(f"过期时间戳: {expire_timestamp}")
+                print(f"代码部分2: {code_part2}")
+                print(f"加密部分: {encrypted_part}")
+            if self.auth_manager.register(register_code):
+                QMessageBox.information(self, "成功", "注册成功！")
+                self.accept()
+            else:
+                QMessageBox.critical(self, "错误", "注册码无效或已过期")
+        except Exception as e:
+            print(f"注册过程中发生错误: {e}")
+            QMessageBox.critical(self, "错误", f"注册过程中发生错误: {e}")
+    def get_machine_code(self):
+        return self.machine_code
+
+# 文件: ./src\widgets\view.py
+import sys
+from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+                            QLabel, QPushButton, QLineEdit, QFileDialog,
+                            QMessageBox, QGroupBox, QFormLayout, QDoubleSpinBox,
+                            QCheckBox, QProgressBar, QFrame, QTableWidget, QTableWidgetItem,
+                            QComboBox, QTabWidget)
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QFont, QPalette, QColor
+from src.ui.arrowcombobox import ArrowComboBox
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+import os
+import pandas as pd
+class PointProcessorUI(QWidget):
+    history_tab_requested = pyqtSignal()
+    def __init__(self):
+        super().__init__()
+        self.init_ui()
+        self.setup_styles()
+    def setup_styles(self):
+        self.setAutoFillBackground(True)
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(240, 240, 240))  # 浅灰色背景
+        palette.setColor(QPalette.ColorRole.WindowText, QColor(0, 0, 0))    # 黑色文字
+        palette.setColor(QPalette.ColorRole.Button, QColor(225, 225, 225))  # 按钮颜色
+        palette.setColor(QPalette.ColorRole.ButtonText, QColor(0, 0, 0))    # 按钮文字颜色
+        self.setPalette(palette)
+    def init_ui(self):
+        self.setStyleSheet()
+        self.setWindowTitle('海道测量数据质检工具')
+        self.resize(800, 600)
+        screen = QApplication.primaryScreen().geometry()
+        window_size = self.geometry()
+        x = (screen.width() - window_size.width()) // 2
+        y = (screen.height() - window_size.height()) // 2
+        self.move(x, y)
+        self.main_tab = QTabWidget()
+        home_widget = QWidget()
+        home_layout = QVBoxLayout()
+        home_layout.setSpacing(15)
+        home_layout.setContentsMargins(20, 20, 20, 20)
+        check_file_group = QGroupBox("检查点文件")
+        check_file_layout = QHBoxLayout()
+        check_file_layout.setSpacing(10)
+        self.check_file_label = QLabel("检查点文件: 未选择")
+        self.check_file_label.setStyleSheet("color: #7f8c8d;")
+        self.select_check_file_btn = QPushButton("检查点文件")
+        self.select_check_file_btn.setFixedWidth(160)
+        check_file_layout.addWidget(self.check_file_label)
+        check_file_layout.addWidget(self.select_check_file_btn)
+        check_file_group.setLayout(check_file_layout)
+        home_layout.addWidget(check_file_group)
+        test_file_group = QGroupBox("测点文件")
+        test_file_layout = QHBoxLayout()
+        test_file_layout.setSpacing(10)
+        self.test_file_label = QLabel("测点文件: 未选择")
+        self.test_file_label.setStyleSheet("color: #7f8c8d;")
+        self.select_test_file_btn = QPushButton("测点文件")
+        self.select_test_file_btn.setFixedWidth(160)
+        test_file_layout.addWidget(self.test_file_label)
+        test_file_layout.addWidget(self.select_test_file_btn)
+        test_file_group.setLayout(test_file_layout)
+        home_layout.addWidget(test_file_group)
+        params_group = QGroupBox("参数设置")
+        params_layout = QFormLayout()
+        params_layout.setSpacing(15)
+        self.scale_combo = ArrowComboBox()
+        self.scale_combo.addItems(['1:500', '1:1000', '1:2000', '1:5000', '1:10000'])
+        self.scale_combo.setFixedWidth(110)
+        self.scale_combo.currentIndexChanged.connect(self._update_radius)
+        self.radius_value = 0.5  # 默认值对应1:500的搜索半径
+        depth_tolerance_info = QLabel(
+            "海道规范：\n"
+            "0<Z≤20 | 0.5\n"
+            "20<Z≤30 | 0.6\n"
+            "30<Z≤50 | 0.7\n"
+            "50<Z≤100 | 1.5\n"
+            "Z>100 | 3%Z"
+        )
+        depth_tolerance_info.setStyleSheet("color: #666; font-size: 9pt;")
+        params_layout.addRow("比例尺:", self.scale_combo)
+        params_layout.addRow("检测标准:", depth_tolerance_info)
+        params_group.setLayout(params_layout)
+        home_layout.addWidget(params_group)
+        option_group = QGroupBox("筛选选项")
+        option_layout = QVBoxLayout()
+        option_layout.setSpacing(10)
+        self.filter_duplicate_test_points = QCheckBox("筛选重复测点（只保留与检查点距离最近的一个）")
+        self.filter_duplicate_test_points.setChecked(True)
+        self.auto_open_excel = QCheckBox("导出完成后自动打开Excel文件")
+        self.auto_open_excel.setChecked(True)
+        option_layout.addWidget(self.filter_duplicate_test_points)
+        option_layout.addWidget(self.auto_open_excel)
+        option_group.setLayout(option_layout)
+        home_layout.addWidget(option_group)
+        progress_group = QGroupBox("处理进度")
+        progress_layout = QVBoxLayout()
+        progress_layout.setSpacing(10)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("%p% - %v/%m")
+        progress_layout.addWidget(self.progress_bar)
+        progress_group.setLayout(progress_layout)
+        home_layout.addWidget(progress_group)
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(15)
+        self.find_nearest_btn = QPushButton("质量检查")
+        self.find_nearest_btn.setFixedWidth(120)
+        self.find_nearest_btn.setMinimumHeight(40)
+        self.find_nearest_btn.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.Bold))
+        self.generate_compare_btn = QPushButton("生成对比图")
+        self.generate_compare_btn.setFixedWidth(120)
+        self.generate_compare_btn.setMinimumHeight(40)
+        self.generate_compare_btn.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.Bold))
+        self.generate_compare_btn.hide()
+        button_layout.addStretch()
+        button_layout.addWidget(self.find_nearest_btn)
+        button_layout.addWidget(self.generate_compare_btn)
+        button_layout.addStretch()
+        home_layout.addLayout(button_layout)
+        self.status_label = QLabel("就绪")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setStyleSheet("color: #7f8c8d;")
+        home_layout.addWidget(self.status_label)
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setStyleSheet("background-color: #cccccc;")
+        home_layout.addWidget(separator)
+        contact_layout = QHBoxLayout()
+        self.contact_label = QLabel("联系方式：微信/电话：18935590710   邮箱：18935590710@163.com")
+        self.contact_label.setStyleSheet("color: #95a5a6; font-size: 9pt; padding: 5px;")
+        self.contact_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        contact_layout.addWidget(self.contact_label)
+        home_layout.addLayout(contact_layout)
+        home_widget.setLayout(home_layout)
+        self.main_tab.addTab(home_widget, "主页")
+        self.scatter_tab_content = QLabel("请先进行质量检查")
+        self.scatter_tab_content.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.scatter_webview = QWebEngineView()
+        self.main_tab.addTab(self.scatter_tab_content, "对比图")
+        self.bar_tab_content = QLabel("请先进行质量检查")
+        self.bar_tab_content.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.bar_webview = QWebEngineView()
+        self.bar_info_label = QLabel("")
+        self.bar_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.bar_info_label.setStyleSheet("color: #888; font-size: 12px; padding: 2px 0 2px 0; margin: 0;")
+        self.main_tab.addTab(self.bar_tab_content, "柱状图")
+        self.result_tab_content = QLabel("请先进行质量检查")
+        self.result_tab_content.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.result_webview = QWebEngineView()
+        self.main_tab.addTab(self.result_tab_content, "质检结果")
+        self.history_tab_content = QLabel("暂无历史记录")
+        self.history_tab_content.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.main_tab.addTab(self.history_tab_content, "历史记录")
+        layout = QVBoxLayout()
+        layout.addWidget(self.main_tab)
+        self.setLayout(layout)
+        self.setWindowFlags(Qt.WindowType.Window)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+        self.main_tab.currentChanged.connect(self._on_tab_changed)
+    def show_message(self, title, message):
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle(title)
+        msg.setText(message)
+        msg.setStyleSheet()
+        msg.exec()
+    def show_error(self, title, message):
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Critical)
+        msg.setWindowTitle(title)
+        msg.setText(message)
+        msg.setStyleSheet()
+        msg.exec()
+    def update_status(self, message):
+        self.status_label.setText(message)
+        QApplication.processEvents()
+    def update_progress(self, value, maximum=None):
+        if maximum is not None:
+            self.progress_bar.setMaximum(maximum)
+        self.progress_bar.setValue(value)
+        QApplication.processEvents()
+    def reset_progress(self):
+        self.progress_bar.setValue(0)
+        QApplication.processEvents()
+    def get_radius(self):
+        return self.radius_value
+    def is_filter_duplicate_points(self):
+        return self.filter_duplicate_test_points.isChecked()
+    def is_auto_open_excel(self):
+        return self.auto_open_excel.isChecked()
+    def select_single_file(self, title):
+        file_name, _ = QFileDialog.getOpenFileName(
+            self,
+            title,
+            "",
+            "DAT文件 (*.dat);;Excel文件 (*.xlsx *.xls);;所有文件 (*.*)"
+        )
+        return file_name if file_name else None
+    def select_output_file(self):
+        file_name, _ = QFileDialog.getSaveFileName(
+            self,
+            "保存结果",
+            "",
+            "Excel文件 (*.xlsx)"
+        )
+        return file_name if file_name else None
+    def _update_radius(self):
+        scale_text = self.scale_combo.currentText()
+        scale = int(scale_text.split(':')[1])
+        self.radius_value = scale / 1000  # 比例尺分母除以1000作为搜索半径（单位：米）
+    def show_html_to_tab(self, html_path, tab_name):
+        abs_path = os.path.abspath(html_path)
+        tab_configs = {
+            "对比图": {
+                "content": self.scatter_tab_content,
+                "webview": self.scatter_webview,
+                "index": 1
+            },
+            "柱状图": {
+                "content": self.bar_tab_content,
+                "webview": self.bar_webview,
+                "index": 2
+            }
+        }
+        if tab_name in tab_configs:
+            config = tab_configs[tab_name]
+            idx = self.main_tab.indexOf(config["content"])
+            if idx == -1:
+                idx = self.main_tab.indexOf(config["webview"])
+            if os.path.exists(abs_path):
+                if self.main_tab.indexOf(config["webview"]) == -1:
+                    self.main_tab.removeTab(idx)
+                    self.main_tab.insertTab(config["index"], config["webview"], tab_name)
+                config["webview"].load(QUrl.fromLocalFile(abs_path))
+            else:
+                if self.main_tab.indexOf(config["content"]) == -1:
+                    self.main_tab.removeTab(idx)
+                    self.main_tab.insertTab(config["index"], config["content"], tab_name)
+                config["content"].setText("请先进行质量检查")
+    def show_result_tab(self, data, tab_name="质检结果"):
+        try:
+            if isinstance(data, pd.DataFrame):
+                df = data.fillna("")
+            else:
+                df = pd.read_excel(data)
+                df = df.fillna("")
+            table = QTableWidget()
+            table.setColumnCount(df.shape[1])
+            table.setRowCount(df.shape[0])
+            table.setHorizontalHeaderLabels(df.columns.tolist())
+            for i in range(df.shape[0]):
+                for j in range(df.shape[1]):
+                    table.setItem(i, j, QTableWidgetItem(str(df.iloc[i, j])))
+            self.add_or_replace_tab(tab_name, table)
+        except Exception as e:
+            self.show_error("错误", f"无法加载质检结果: {str(e)}")
+    def _on_tab_changed(self, idx):
+        if self.main_tab.tabText(idx) == "历史记录":
+            self.history_tab_requested.emit()
+    def add_or_replace_tab(self, tab_name, widget):
+        idx = -1
+        for i in range(self.main_tab.count()):
+            if self.main_tab.tabText(i) == tab_name:
+                idx = i
+                break
+        if idx == -1:
+            self.main_tab.addTab(widget, tab_name)
+            idx = self.main_tab.count() - 1
+        else:
+            self.main_tab.removeTab(idx)
+            self.main_tab.insertTab(idx, widget, tab_name)
+        if self.main_tab.currentIndex() != idx:
+            self.main_tab.setCurrentIndex(idx)
+    def show_bar_info(self, info: str):
+        idx = self.main_tab.indexOf(self.bar_webview)
+        if idx == -1:
+            idx = self.main_tab.indexOf(self.bar_tab_content)
+            if idx != -1:
+                self.main_tab.removeTab(idx)
+                self.main_tab.insertTab(2, self.bar_webview, "柱状图")
+                idx = 2
+        widget = self.main_tab.widget(idx)
+        if not isinstance(widget, QWidget) or not hasattr(widget, 'layout'):
+            container = QWidget()
+            layout = QVBoxLayout()
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+            layout.addWidget(self.bar_webview)
+            layout.addWidget(self.bar_info_label)
+            container.setLayout(layout)
+            self.main_tab.removeTab(idx)
+            self.main_tab.insertTab(idx, container, "柱状图")
+        else:
+            layout = widget.layout()
+            if layout.indexOf(self.bar_info_label) == -1:
+                layout.addWidget(self.bar_info_label)
+        self.bar_info_label.setText(info)
+
+# 文件: ./src\widgets\__init__.py
+
+

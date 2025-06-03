@@ -1,48 +1,36 @@
 # 项目特定文件和目录
 数据/
+logs/
 .idea/
-.venv/
-.cursorignore
+.vscode/
+.DS_Store
 __pycache__/
-*.py[cod]
-*$py.class
 */__pycache__/
 **/__pycache__/
-*.pyc
 
-# 虚拟环境
-venv/
-env/
-ENV/
-
-# 编译文件
+# Python 编译文件
+*.py[cod]
+*$py.class
 *.so
 *.dll
 *.dylib
 
-# 分发/打包
-dist/
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# 构建/打包
 build/
+dist/
 *.egg-info/
 
-# 日志文件
+# 本地配置与环境变量
+.env*
 *.log
-logs/
 
-# 本地配置文件
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# IDE相关文件
-.vscode/
-*.swp
-*.swo
-.DS_Store
-
-# PyQt生成的文件
+# PyQt自动生成的文件
 *_ui.py
 *_rc.py
 
@@ -50,11 +38,11 @@ logs/
 *.tmp
 *.bak
 *.swp
+*.swo
 *~
 
-# 测试覆盖率报告
+# 覆盖率报告
 .coverage
 htmlcov/
-
-
-
+export_code_no_comment.py
+export_code_no_comment.txt

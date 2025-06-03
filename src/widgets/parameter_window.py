@@ -27,7 +27,8 @@ class ParameterWindow(QDialog):
             "k": 0.14,
             "pc": -0.28,
             "mc": -2.43,
-            "r": 6371000
+            "r": 6371000,
+            "tolerance_factor": 40  # 添加tolerance系数默认值
         }
         
         # 加载已保存的参数
@@ -76,6 +77,23 @@ class ParameterWindow(QDialog):
         self.r_edit = QLineEdit()
         self.r_edit.setValidator(QDoubleValidator())
         form_layout.addRow("r (地球半径/m):", self.r_edit)
+
+        # 添加tolerance系数输入框，使用水平布局添加后缀说明
+        self.tolerance_factor_edit = QLineEdit()
+        self.tolerance_factor_edit.setValidator(QDoubleValidator())
+        
+        # 创建水平布局来包含输入框和说明标签
+        tolerance_layout = QHBoxLayout()
+        tolerance_layout.addWidget(self.tolerance_factor_edit)
+        
+        # 添加说明标签
+        tolerance_suffix = QLabel("× √边长")
+        tolerance_suffix.setStyleSheet("font-weight: bold;")
+        tolerance_layout.addWidget(tolerance_suffix)
+        tolerance_layout.addStretch()  # 添加弹性空间，确保标签紧贴输入框
+        
+        # 将水平布局添加到表单布局
+        form_layout.addRow("限差:", tolerance_layout)
         
         params_group.setLayout(form_layout)
         main_layout.addWidget(params_group)
@@ -114,6 +132,7 @@ class ParameterWindow(QDialog):
         self.pc_edit.setText(str(self.params["pc"]))
         self.mc_edit.setText(str(self.params["mc"]))
         self.r_edit.setText(str(self.params["r"]))
+        self.tolerance_factor_edit.setText(str(self.params["tolerance_factor"]))  # 设置tolerance系数值
         
     def reset_to_default(self):
         """重置为默认参数"""
@@ -154,7 +173,8 @@ class ParameterWindow(QDialog):
                 "k": float(self.k_edit.text()),
                 "pc": float(self.pc_edit.text()),
                 "mc": float(self.mc_edit.text()),
-                "r": float(self.r_edit.text())
+                "r": float(self.r_edit.text()),
+                "tolerance_factor": float(self.tolerance_factor_edit.text())  # 保存tolerance系数值
             }
             
             # 创建配置目录
